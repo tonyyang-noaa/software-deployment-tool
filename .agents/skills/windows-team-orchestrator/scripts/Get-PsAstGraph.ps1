@@ -24,26 +24,13 @@
 [CmdletBinding(SupportsShouldProcess = $false)]
 param(
     [Parameter(Mandatory = $true, Position = 0, ValueFromPipelineByPropertyName = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$LiteralPath,
-
-    [Parameter(Mandatory = $false)]
-    [string]$Query = '',
-
-    [Parameter(Mandatory = $false)]
-    [ValidateRange(50, 500)]
-    [int]$MaxWindowLines = 500,
-
-    [Parameter(Mandatory = $false)]
-    [string]$OutJsonPath = '.agents/state/ast-line-graph.json',
-
-    [Parameter(Mandatory = $false)]
-    [switch]$ExportGraphify,
-
-    [Parameter(Mandatory = $false)]
-    [switch]$NormalizeCrlf
+    [ValidateNotNullOrEmpty()][string]$LiteralPath,
+    [Parameter(Mandatory = $false)][string]$Query = '',
+    [Parameter(Mandatory = $false)][ValidateRange(50, 500)][int]$MaxWindowLines = 500,
+    [Parameter(Mandatory = $false)][string]$OutJsonPath = '.agents/state/ast-line-graph.json',
+    [Parameter(Mandatory = $false)][switch]$ExportGraphify,
+    [Parameter(Mandatory = $false)][switch]$NormalizeCrlf
 )
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
