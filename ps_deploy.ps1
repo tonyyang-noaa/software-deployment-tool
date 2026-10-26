@@ -777,7 +777,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
                 <Button x:Name="btnClearResultFilters" Grid.Column="1" Content="🧹 Clear Log Filters" Width="Auto" Height="30" Padding="10,2" Background="#45475A" Foreground="#CDD6F4" Margin="0,0,8,0" ToolTip="Clear all column header filters and sorting in the Status Log"/>
                 <Button x:Name="btnDeleteRow" Grid.Column="2" Content="🗑 Delete Row" Width="Auto" Height="30" Padding="12,2" Background="#FAB387" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Delete selected deployment result row"/>
                 <Button x:Name="btnClearStatus" Grid.Column="3" Content="🧹 Clear Status" Width="Auto" Height="30" Padding="12,2" Background="#F38BA8" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Clear all deployment result status rows"/>
-                <Button x:Name="btnSaveLogs" Grid.Column="4" Content="💾 Save Status Logs" Width="Auto" Height="30" Padding="12,2" Background="#89DCEB" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Save deployment result status logs to a CSV or text file"/>
+                <Button x:Name="btnSaveLogs" Grid.Column="4" Content="💾 Export to CSV" Width="Auto" Height="30" Padding="12,2" Background="#89DCEB" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Export deployment result status logs to a CSV file"/>
                 <Button x:Name="btnStopDeploy" Grid.Column="5" Content="⏹ Stop Deployment" Width="Auto" Height="30" Padding="14,2" Background="#F38BA8" Foreground="#11111B" Margin="0" IsEnabled="False" ToolTip="Stop the currently running deployment"/>
             </Grid>
 
@@ -2572,7 +2572,7 @@ function Save-AppSettings {
                         <StackPanel x:Name="pnlDlgCredFields">
                             <Grid Margin="0,0,0,6">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Domain / Machine:"/>
+                                <TextBlock Text="Domain:"/>
                                 <TextBox x:Name="txtDlgDomain" Grid.Column="1" ToolTip="Domain name (e.g. CONTOSO) or machine name. Leave empty for local accounts."/>
                             </Grid>
                             <Grid Margin="0,0,0,6">
@@ -5901,70 +5901,208 @@ $script:ProbeDispatcherTimer = New-Object System.Windows.Threading.DispatcherTim
 $script:ProbeDispatcherTimer.Interval = [TimeSpan]::FromMilliseconds(180)
 
 $script:TargetProbeWorkerScriptBlock = {
-    param([string]$CompName)
+    param([string]$CompName, [string]$DomainHint = "")
     $res = @{
         ComputerName = $CompName
         OnlineStatus = "Offline"
         IPAddress    = "N/A"
-        CurrentUser  = "N/A"
+        CurrentUser  = "Offline"
     }
     if ([string]::IsNullOrWhiteSpace($CompName)) { return $res }
+    $cleanName = $CompName.Trim()
+    $shortName = ($cleanName -split '\.')[0]
 
-    # 1. Resolve IPv4 with fast timeout / non-blocking fallback
+    # Collect active local IPv4 addresses to detect local machine & provide fast local IP
+    $localIps = New-Object System.Collections.Generic.List[string]
     try {
-        $ips = [System.Net.Dns]::GetHostAddresses($CompName) | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }
-        if ($ips) { $res.IPAddress = $ips[0].IPAddressToString }
-    } catch {}
-
-    # 2. Fast Reachability Probe (ICMP 750ms -> TCP 5985/5986/445/135 500ms)
-    $isOnline = $false
-    try {
-        $ping = New-Object System.Net.NetworkInformation.Ping
-        try {
-            $reply = $ping.Send($CompName, 750)
-            if ($reply -and $reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
-                $isOnline = $true
-                if ($res.IPAddress -eq "N/A" -and $reply.Address) {
-                    $res.IPAddress = $reply.Address.IPAddressToString
+        foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            if ($ni.OperationalStatus -eq [System.Net.NetworkInformation.OperationalStatus]::Up -and
+                $ni.NetworkInterfaceType -ne [System.Net.NetworkInformation.NetworkInterfaceType]::Loopback) {
+                foreach ($ua in $ni.GetIPProperties().UnicastAddresses) {
+                    if ($ua.Address -and $ua.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                        $ipStr = $ua.Address.IPAddressToString
+                        if ($ipStr -and -not $ipStr.StartsWith("169.254.")) {
+                            [void]$localIps.Add($ipStr)
+                        }
+                    }
                 }
             }
-        } finally {
-            $ping.Dispose()
         }
     } catch {}
 
-    if (-not $isOnline) {
-        foreach ($port in @(5985, 5986, 445, 135)) {
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            try {
-                $iar = $tcp.BeginConnect($CompName, $port, $null, $null)
-                if ($iar.AsyncWaitHandle.WaitOne(500, $false) -and $tcp.Connected) {
-                    $isOnline = $true
-                    break
-                }
-            } catch {} finally {
-                $tcp.Close()
+    $isLocal = ($cleanName -in @('localhost', '127.0.0.1', '::1', '.')) -or
+               ($shortName -ieq $env:COMPUTERNAME) -or
+               ($shortName -ieq [System.Environment]::MachineName) -or
+               ($localIps -contains $cleanName)
+    if (-not $isLocal) {
+        try {
+            $localDns = [System.Net.Dns]::GetHostName()
+            if ($cleanName -ieq $localDns -or $shortName -ieq ($localDns -split '\.')[0]) {
+                $isLocal = $true
             }
+        } catch {}
+    }
+
+    if ($isLocal) {
+        $res.OnlineStatus = "Online"
+        if ($localIps.Count -gt 0) {
+            $res.IPAddress = $localIps[0]
+        } else {
+            try {
+                $dnsIps = @([System.Net.Dns]::GetHostAddresses($env:COMPUTERNAME) | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork })
+                if ($dnsIps.Count -gt 0) { $res.IPAddress = $dnsIps[0].IPAddressToString } else { $res.IPAddress = "127.0.0.1" }
+            } catch {
+                $res.IPAddress = "127.0.0.1"
+            }
+        }
+        try {
+            $curId = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            if ($curId -and -not [string]::IsNullOrWhiteSpace($curId.Name)) {
+                $res.CurrentUser = [string]$curId.Name
+            } else {
+                $res.CurrentUser = "$env:USERDOMAIN\$env:USERNAME"
+            }
+        } catch {
+            $res.CurrentUser = "$env:USERDOMAIN\$env:USERNAME"
+        }
+        return $res
+    }
+
+    # 1. Resolve IPv4 (array-safe in PS 5.1; try FQDN with DomainHint if bare name fails)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    [void]$candidates.Add($cleanName)
+    if ($cleanName -notmatch '\.' -and $cleanName -notmatch ':') {
+        if (-not [string]::IsNullOrWhiteSpace($DomainHint)) {
+            [void]$candidates.Add("$cleanName.$($DomainHint.Trim().TrimStart('.'))")
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:USERDNSDOMAIN)) {
+            $fqdnEnv = "$cleanName.$($env:USERDNSDOMAIN.Trim())"
+            if (-not $candidates.Contains($fqdnEnv)) { [void]$candidates.Add($fqdnEnv) }
+        }
+    }
+
+    $resolvedTarget = $cleanName
+    foreach ($cand in $candidates) {
+        try {
+            $ips = @([System.Net.Dns]::GetHostAddresses($cand) | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork })
+            if ($ips.Count -gt 0) {
+                $res.IPAddress = $ips[0].IPAddressToString
+                $resolvedTarget = $cand
+                break
+            }
+        } catch {}
+    }
+
+    if ($res.IPAddress -ne "N/A" -and ($localIps -contains $res.IPAddress -or $res.IPAddress -eq "127.0.0.1")) {
+        $res.OnlineStatus = "Online"
+        try {
+            $res.CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        } catch {
+            $res.CurrentUser = "$env:USERDOMAIN\$env:USERNAME"
+        }
+        return $res
+    }
+
+    $probeHost = if ($res.IPAddress -ne "N/A") { $res.IPAddress } else { $resolvedTarget }
+
+    # 2. Fast Multi-Vector Reachability Probe (ICMP 2-try -> Parallel TCP 5985/5986/445/135/3389/139/22/80/443 + TCP RST detection)
+    $isOnline = $false
+    foreach ($pingTarget in @($probeHost, $resolvedTarget) | Select-Object -Unique) {
+        if ($isOnline -or [string]::IsNullOrWhiteSpace($pingTarget)) { break }
+        try {
+            $ping = New-Object System.Net.NetworkInformation.Ping
+            try {
+                for ($attempt = 1; $attempt -le 2; $attempt++) {
+                    $reply = $ping.Send($pingTarget, 900)
+                    if ($reply -and $reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+                        $isOnline = $true
+                        if ($res.IPAddress -eq "N/A" -and $reply.Address -and $reply.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                            $res.IPAddress = $reply.Address.IPAddressToString
+                        }
+                        break
+                    }
+                }
+            } finally {
+                $ping.Dispose()
+            }
+        } catch {}
+    }
+
+    if (-not $isOnline) {
+        $tcpEntries = New-Object System.Collections.Generic.List[object]
+        foreach ($port in @(5985, 5986, 445, 135, 3389, 139, 22, 80, 443)) {
+            try {
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                $iar = $tcp.BeginConnect($probeHost, $port, $null, $null)
+                [void]$tcpEntries.Add([PSCustomObject]@{ Client = $tcp; Async = $iar })
+            } catch {}
+        }
+        $swTcp = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($swTcp.ElapsedMilliseconds -lt 1000 -and -not $isOnline) {
+            $allDone = $true
+            foreach ($entry in $tcpEntries) {
+                if ($entry.Async.IsCompleted) {
+                    if ($entry.Client.Connected) {
+                        $isOnline = $true
+                        break
+                    }
+                    try {
+                        $entry.Client.EndConnect($entry.Async)
+                        if ($entry.Client.Connected) { $isOnline = $true; break }
+                    } catch [System.Net.Sockets.SocketException] {
+                        if ($_.Exception.SocketErrorCode -in @(
+                            [System.Net.Sockets.SocketError]::ConnectionRefused,
+                            [System.Net.Sockets.SocketError]::AccessDenied
+                        )) {
+                            $isOnline = $true
+                            break
+                        }
+                    } catch {}
+                } else {
+                    $allDone = $false
+                }
+            }
+            if ($isOnline -or $allDone) { break }
+            Start-Sleep -Milliseconds 40
+        }
+        foreach ($entry in $tcpEntries) {
+            try { $entry.Client.Close() } catch {}
         }
     }
 
     if ($isOnline) {
         $res.OnlineStatus = "Online"
+        $res.CurrentUser  = "Unknown (Access/Firewall)"
+        # Query CurrentUser in a bounded sub-pipeline (max 1800ms) so DCOM hangs never mark Online hosts as Offline
+        $cimPs = [powershell]::Create()
         try {
-            $cimOpt = New-CimSessionOption -Protocol Dcom
-            $cimSess = New-CimSession -ComputerName $CompName -SessionOption $cimOpt -OperationTimeoutSec 2 -ErrorAction Stop
-            try {
-                $cs = Get-CimInstance -CimSession $cimSess -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 2 -ErrorAction Stop
-                if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
-                    $res.CurrentUser = [string]$cs.UserName
-                } else {
-                    $res.CurrentUser = "None (Console Idle)"
+            [void]$cimPs.AddScript({
+                param([string]$TargetHost)
+                $cimOpt = New-CimSessionOption -Protocol Dcom
+                $cimSess = New-CimSession -ComputerName $TargetHost -SessionOption $cimOpt -OperationTimeoutSec 2 -ErrorAction Stop
+                try {
+                    $cs = Get-CimInstance -CimSession $cimSess -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 2 -ErrorAction Stop
+                    if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
+                        return [string]$cs.UserName
+                    }
+                    return "None (Console Idle)"
+                } finally {
+                    Remove-CimSession -CimSession $cimSess -ErrorAction SilentlyContinue
                 }
-            } finally {
-                Remove-CimSession -CimSession $cimSess -ErrorAction SilentlyContinue
+            }).AddArgument($resolvedTarget)
+            $cimAsync = $cimPs.BeginInvoke()
+            if ($cimAsync.AsyncWaitHandle.WaitOne(1800, $false)) {
+                $cimOut = @($cimPs.EndInvoke($cimAsync))
+                if ($cimOut.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$cimOut[0])) {
+                    $res.CurrentUser = [string]$cimOut[0]
+                }
+            } else {
+                try { $cimPs.Stop() } catch {}
             }
         } catch {
             $res.CurrentUser = "Unknown (Access/Firewall)"
+        } finally {
+            try { $cimPs.Dispose() } catch {}
         }
     } else {
         $res.OnlineStatus = "Offline"
@@ -5986,7 +6124,7 @@ $script:ProbeDispatcherTimer.Add_Tick({
         $job = $script:ActiveProbeJobs[$idx]
         $elapsedSec = ($now - $job.StartedAt).TotalSeconds
         $isDone = $job.Handle.IsCompleted
-        $isTimeout = (-not $isDone) -and ($elapsedSec -gt 8.0)
+        $isTimeout = (-not $isDone) -and ($elapsedSec -gt 25.0)
 
         if ($isDone -or $isTimeout) {
             $targetItem = $job.TargetItem
@@ -6056,7 +6194,7 @@ function Start-BackgroundTargetProbe {
     if (-not $TargetsToProbe -or $TargetsToProbe.Count -eq 0) { return }
 
     if ($null -eq $script:ProbeRunspacePool -or $script:ProbeRunspacePool.RunspacePoolStateInfo.State -ne [System.Management.Automation.Runspaces.RunspacePoolState]::Opened) {
-        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool(1, 10)
+        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool(1, 32)
         $script:ProbeRunspacePool.Open()
     }
 
@@ -6072,6 +6210,13 @@ function Start-BackgroundTargetProbe {
         }
     }
 
+    $defaultDomHint = ""
+    if ($txtAdDomain -and -not [string]::IsNullOrWhiteSpace($txtAdDomain.Text)) {
+        $defaultDomHint = $txtAdDomain.Text.Trim()
+    } elseif (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Domain)) {
+        $defaultDomHint = $script:AppSettings.Domain.Trim()
+    }
+
     $queuedNow = 0
     foreach ($t in $TargetsToProbe) {
         if (-not $t -or [string]::IsNullOrWhiteSpace($t.ComputerName)) { continue }
@@ -6085,9 +6230,14 @@ function Start-BackgroundTargetProbe {
             $t.CurrentUser = "..."
         }
 
+        $domHint = $defaultDomHint
+        if ($t.OUPath -and $t.OUPath -match '^([A-Za-z0-9.-]+\.[A-Za-z]{2,})/') {
+            $domHint = $matches[1]
+        }
+
         $ps = [powershell]::Create()
         $ps.RunspacePool = $script:ProbeRunspacePool
-        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName)
+        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName).AddArgument($domHint)
         $handle = $ps.BeginInvoke()
 
         [void]$script:ActiveProbeJobs.Add([PSCustomObject]@{
@@ -6878,29 +7028,29 @@ function Show-ActiveDirectoryImportDialog {
         $chkAdIncludeSubOUs.IsChecked = [bool]$adSavedLayout.LastImportedSubOUs
     }
 
-    $adAllComputers  = New-Object System.Collections.Generic.List[PSCustomObject]
-    $adViewComputers = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
-    $dgAdComputers.ItemsSource = $adViewComputers
-    $adState = @{
+    $script:AdAllComputers  = New-Object System.Collections.Generic.List[PSCustomObject]
+    $script:AdViewComputers = New-Object System.Collections.ObjectModel.ObservableCollection[PSCustomObject]
+    $dgAdComputers.ItemsSource = $script:AdViewComputers
+    $script:AdBrowserState = @{
         ServerPrefix = ""
         RootDN       = ""
         SelectedDN   = ""
         SelectedName = ""
     }
 
-    $updateAdSummary = {
-        $checkedCount = @($adViewComputers | Where-Object { $_.Selected }).Count
-        $ouLabel = if ($adState.SelectedName) { $adState.SelectedName } else { "Selected Container" }
-        $lblAdSummary.Text = "Showing $($adViewComputers.Count) of $($adAllComputers.Count) computer(s) in '$ouLabel' | $checkedCount checked"
+    $script:UpdateAdBrowserSummary = {
+        $checkedCount = @($script:AdViewComputers | Where-Object { $_.Selected }).Count
+        $ouLabel = if ($script:AdBrowserState.SelectedName) { $script:AdBrowserState.SelectedName } else { "Selected Container" }
+        $lblAdSummary.Text = "Showing $($script:AdViewComputers.Count) of $($script:AdAllComputers.Count) computer(s) in '$ouLabel' | $checkedCount checked"
     }
 
-    $applyAdClientFilter = {
+    $script:ApplyAdBrowserClientFilter = {
         $searchTxt = $txtAdSearch.Text.Trim()
         $osSelItem = $cmbAdOsFilter.SelectedItem
         $osMode    = if ($osSelItem -and $osSelItem.Content) { "$($osSelItem.Content)" } else { "All OS Types" }
 
-        $adViewComputers.Clear()
-        foreach ($comp in $adAllComputers) {
+        $script:AdViewComputers.Clear()
+        foreach ($comp in $script:AdAllComputers) {
             if ($osMode -eq "Workstations Only" -and $comp.OperatingSystem -match '(?i)Server') { continue }
             if ($osMode -eq "Servers Only" -and $comp.OperatingSystem -notmatch '(?i)Server') { continue }
             if (-not [string]::IsNullOrWhiteSpace($searchTxt)) {
@@ -6911,12 +7061,12 @@ function Show-ActiveDirectoryImportDialog {
                            ($comp.Description -like "*$searchTxt*")
                 if (-not $matched) { continue }
             }
-            $adViewComputers.Add($comp)
+            $script:AdViewComputers.Add($comp)
         }
-        & $updateAdSummary
+        & $script:UpdateAdBrowserSummary
     }
 
-    $queryComputersForSelectedOU = {
+    $script:QueryComputersForSelectedAdOU = {
         $selItem = $tvAdOUs.SelectedItem
         if (-not $selItem -or -not $selItem.Tag) { return }
 
@@ -6924,8 +7074,8 @@ function Show-ActiveDirectoryImportDialog {
         $targetName = "$($selItem.Tag.DisplayName)"
         if ([string]::IsNullOrWhiteSpace($targetDN)) { return }
 
-        $adState.SelectedDN   = $targetDN
-        $adState.SelectedName = $targetName
+        $script:AdBrowserState.SelectedDN   = $targetDN
+        $script:AdBrowserState.SelectedName = $targetName
         $lblAdSummary.Text    = "Querying Active Directory computers in '$targetName'..."
         Invoke-WpfDoEvents
 
@@ -6933,7 +7083,7 @@ function Show-ActiveDirectoryImportDialog {
         $searcher = $null
         $results  = $null
         try {
-            $ldapUrl = if ($adState.ServerPrefix) { "LDAP://$($adState.ServerPrefix)/$targetDN" } else { "LDAP://$targetDN" }
+            $ldapUrl = if ($script:AdBrowserState.ServerPrefix) { "LDAP://$($script:AdBrowserState.ServerPrefix)/$targetDN" } else { "LDAP://$targetDN" }
             $entry    = New-AdDirectoryEntry -LdapPath $ldapUrl
             $searcher = New-Object System.DirectoryServices.DirectorySearcher($entry)
             $searcher.PageSize = 500
@@ -6953,7 +7103,7 @@ function Show-ActiveDirectoryImportDialog {
             [void]$searcher.PropertiesToLoad.AddRange(@("name", "cn", "dNSHostName", "operatingSystem", "description", "distinguishedName", "lastLogonTimestamp", "lastLogon"))
             $results = $searcher.FindAll()
 
-            $adAllComputers.Clear()
+            $script:AdAllComputers.Clear()
             $tempList = New-Object System.Collections.Generic.List[PSCustomObject]
             foreach ($res in $results) {
                 $props = $res.Properties
@@ -6988,11 +7138,11 @@ function Show-ActiveDirectoryImportDialog {
             }
 
             foreach ($sortedComp in ($tempList | Sort-Object Name)) {
-                $adAllComputers.Add($sortedComp)
+                $script:AdAllComputers.Add($sortedComp)
             }
 
-            & $applyAdClientFilter
-            Write-DiagnosticLog "AD Browser queried $($adAllComputers.Count) computer(s) under '$targetDN'"
+            & $script:ApplyAdBrowserClientFilter
+            Write-DiagnosticLog "AD Browser queried $($script:AdAllComputers.Count) computer(s) under '$targetDN'"
         } catch {
             $errMsg = $_.Exception.Message
             $lblAdSummary.Text = "AD query error: $errMsg"
@@ -7005,7 +7155,7 @@ function Show-ActiveDirectoryImportDialog {
         }
     }
 
-    $connectAndLoadOUs = {
+    $script:ConnectAndLoadAdOUs = {
         $domInput = $txtAdDomain.Text.Trim()
         $serverPrefix = $domInput
         $lblAdConnStatus.Text = "Connecting to Active Directory..."
@@ -7024,8 +7174,8 @@ function Show-ActiveDirectoryImportDialog {
                 throw "Could not retrieve defaultNamingContext from Active Directory RootDSE."
             }
 
-            $adState.ServerPrefix = $serverPrefix
-            $adState.RootDN       = $defaultNamingContext
+            $script:AdBrowserState.ServerPrefix = $serverPrefix
+            $script:AdBrowserState.RootDN       = $defaultNamingContext
 
             $authLabel = if ($script:AppSettings -and (-not $script:AppSettings.UseCurrentCred) -and $script:AppSettings.Username) {
                 "Auth: $($script:AppSettings.Username)"
@@ -7136,52 +7286,52 @@ function Show-ActiveDirectoryImportDialog {
         }
     }
 
-    $btnAdConnect.Add_Click($connectAndLoadOUs)
+    $btnAdConnect.Add_Click($script:ConnectAndLoadAdOUs)
     $txtAdDomain.Add_KeyDown({
         param($s, $e)
         if ($e.Key -eq [System.Windows.Input.Key]::Return) {
-            & $connectAndLoadOUs
+            & $script:ConnectAndLoadAdOUs
         }
     })
 
     $tvAdOUs.Add_SelectedItemChanged({
-        & $queryComputersForSelectedOU
+        & $script:QueryComputersForSelectedAdOU
     })
 
     $chkAdIncludeSubOUs.Add_Click({
-        if ($tvAdOUs.SelectedItem) { & $queryComputersForSelectedOU }
+        if ($tvAdOUs.SelectedItem) { & $script:QueryComputersForSelectedAdOU }
     })
 
     $chkAdEnabledOnly.Add_Click({
-        if ($tvAdOUs.SelectedItem) { & $queryComputersForSelectedOU }
+        if ($tvAdOUs.SelectedItem) { & $script:QueryComputersForSelectedAdOU }
     })
 
     $btnAdQuery.Add_Click({
         if ($tvAdOUs.SelectedItem) {
-            & $queryComputersForSelectedOU
+            & $script:QueryComputersForSelectedAdOU
         } else {
-            & $connectAndLoadOUs
+            & $script:ConnectAndLoadAdOUs
         }
     })
 
     $txtAdSearch.Add_TextChanged({
-        & $applyAdClientFilter
+        & $script:ApplyAdBrowserClientFilter
     })
 
     $cmbAdOsFilter.Add_SelectionChanged({
-        & $applyAdClientFilter
+        & $script:ApplyAdBrowserClientFilter
     })
 
     $btnAdCheckAll.Add_Click({
-        foreach ($c in $adViewComputers) { $c.Selected = $true }
+        foreach ($c in $script:AdViewComputers) { $c.Selected = $true }
         $dgAdComputers.Items.Refresh()
-        & $updateAdSummary
+        & $script:UpdateAdBrowserSummary
     })
 
     $btnAdUncheckAll.Add_Click({
-        foreach ($c in $adAllComputers) { $c.Selected = $false }
+        foreach ($c in $script:AdAllComputers) { $c.Selected = $false }
         $dgAdComputers.Items.Refresh()
-        & $updateAdSummary
+        & $script:UpdateAdBrowserSummary
     })
 
     $btnAdToggleHighlighted.Add_Click({
@@ -7193,7 +7343,7 @@ function Show-ActiveDirectoryImportDialog {
             }
         }
         $dgAdComputers.Items.Refresh()
-        & $updateAdSummary
+        & $script:UpdateAdBrowserSummary
     })
 
     $dgAdComputers.AddHandler(
@@ -7201,7 +7351,7 @@ function Show-ActiveDirectoryImportDialog {
         [System.Windows.RoutedEventHandler]{
             param($sender, $e)
             if ($e.OriginalSource -is [System.Windows.Controls.CheckBox]) {
-                & $updateAdSummary
+                & $script:UpdateAdBrowserSummary
             }
         }
     )
@@ -7211,16 +7361,16 @@ function Show-ActiveDirectoryImportDialog {
         if ($cur -and $null -ne $cur.PSObject.Properties['Selected']) {
             $cur.Selected = -not [bool]$cur.Selected
             $dgAdComputers.Items.Refresh()
-            & $updateAdSummary
+            & $script:UpdateAdBrowserSummary
         }
     })
 
-    $saveLastImportedAdOuState = {
+    $script:SaveLastImportedAdOuState = {
         try {
             if ($script:UiLayoutState -and $script:UiLayoutState.ChildWindows -and $script:UiLayoutState.ChildWindows["AdBrowser"]) {
                 $adCw = $script:UiLayoutState.ChildWindows["AdBrowser"]
-                if (-not [string]::IsNullOrWhiteSpace($adState.SelectedDN)) {
-                    $adCw.LastImportedOuDN = [string]$adState.SelectedDN
+                if (-not [string]::IsNullOrWhiteSpace($script:AdBrowserState.SelectedDN)) {
+                    $adCw.LastImportedOuDN = [string]$script:AdBrowserState.SelectedDN
                 }
                 if (-not [string]::IsNullOrWhiteSpace($txtAdDomain.Text)) {
                     $adCw.LastImportedDomain = [string]$txtAdDomain.Text.Trim()
@@ -7232,15 +7382,15 @@ function Show-ActiveDirectoryImportDialog {
     }
 
     $btnAdImportOU.Add_Click({
-        if ($adViewComputers.Count -eq 0) {
+        if ($script:AdViewComputers.Count -eq 0) {
             [System.Windows.MessageBox]::Show("No computers are currently listed in the selected OU to import.", "Import OU", "OK", "Information")
             return
         }
-        $ouTitle = if ($adState.SelectedName) { $adState.SelectedName } else { "Selected OU" }
-        $ans = [System.Windows.MessageBox]::Show("Import all $($adViewComputers.Count) computer(s) displayed from '$ouTitle' into Computer Inventory?", "Confirm OU Import", "YesNo", "Question")
+        $ouTitle = if ($script:AdBrowserState.SelectedName) { $script:AdBrowserState.SelectedName } else { "Selected OU" }
+        $ans = [System.Windows.MessageBox]::Show("Import all $($script:AdViewComputers.Count) computer(s) displayed from '$ouTitle' into Computer Inventory?", "Confirm OU Import", "YesNo", "Question")
         if ($ans -ne 'Yes') { return }
 
-        $itemsToImport = @($adViewComputers | Where-Object { $_ -and $_.Name } | ForEach-Object {
+        $itemsToImport = @($script:AdViewComputers | Where-Object { $_ -and $_.Name } | ForEach-Object {
             [PSCustomObject]@{
                 ComputerName      = $_.Name
                 OUPath            = $_.OUPath
@@ -7249,14 +7399,14 @@ function Show-ActiveDirectoryImportDialog {
                 Source            = "ADImport"
             }
         })
-        & $saveLastImportedAdOuState
+        & $script:SaveLastImportedAdOuState
         $adWin.Close()
         Write-DiagnosticLog "Importing $($itemsToImport.Count) computer(s) from AD OU '$ouTitle'"
         Add-TargetComputers -ComputerItems $itemsToImport -DefaultSource "ADImport"
     })
 
     $btnAdImportSelected.Add_Click({
-        $checkedItems     = @($adAllComputers | Where-Object { $_.Selected })
+        $checkedItems     = @($script:AdAllComputers | Where-Object { $_.Selected })
         $highlightedItems = @($dgAdComputers.SelectedItems | Where-Object { $_ -and $_.Name })
         $combinedNames    = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
         $combinedItems    = New-Object System.Collections.Generic.List[PSCustomObject]
@@ -7278,7 +7428,7 @@ function Show-ActiveDirectoryImportDialog {
             return
         }
 
-        & $saveLastImportedAdOuState
+        & $script:SaveLastImportedAdOuState
         $adWin.Close()
         Write-DiagnosticLog "Importing $($combinedItems.Count) selected computer(s) from Active Directory"
         Add-TargetComputers -ComputerItems $combinedItems.ToArray() -DefaultSource "ADImport"
@@ -7290,7 +7440,7 @@ function Show-ActiveDirectoryImportDialog {
 
     $adWin.Add_ContentRendered({
         if (-not [string]::IsNullOrWhiteSpace($txtAdDomain.Text)) {
-            & $connectAndLoadOUs
+            & $script:ConnectAndLoadAdOUs
         }
     })
 
@@ -7614,6 +7764,42 @@ function Invoke-AdSync {
     return $true
 }
 
+function Set-AdPickerDescendantChecks {
+    param(
+        [System.Windows.Controls.TreeViewItem]$ParentNode,
+        [bool]$TargetChecked
+    )
+    if ($null -eq $ParentNode) { return }
+    foreach ($childItem in $ParentNode.Items) {
+        if ($childItem -is [System.Windows.Controls.TreeViewItem]) {
+            $childChk = $childItem.Header
+            if ($childChk -is [System.Windows.Controls.CheckBox]) {
+                $childChk.IsChecked = $TargetChecked
+            }
+            Set-AdPickerDescendantChecks -ParentNode $childItem -TargetChecked $TargetChecked
+        }
+    }
+}
+
+function Test-AdPickerHasUncheckedDescendant {
+    param(
+        [System.Windows.Controls.TreeViewItem]$Node
+    )
+    if ($null -eq $Node) { return $false }
+    foreach ($child in $Node.Items) {
+        if ($child -is [System.Windows.Controls.TreeViewItem]) {
+            $cBox = $child.Header
+            if ($cBox -is [System.Windows.Controls.CheckBox] -and $cBox.IsChecked -ne $true) {
+                return $true
+            }
+            if (Test-AdPickerHasUncheckedDescendant -Node $child) {
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
 function Select-AdContainersDialog {
     param(
         [string]$SyncType = "Include",
@@ -7723,15 +7909,20 @@ function Select-AdContainersDialog {
     $btnPickerCancel       = $pWin.FindName("btnPickerCancel")
 
     $txtPickerDomain.Text = if (-not [string]::IsNullOrWhiteSpace($InitialDomain)) { $InitialDomain } else { Get-DefaultAdDomainName }
-    $allCheckBoxes = New-Object System.Collections.Generic.List[System.Windows.Controls.CheckBox]
-    $script:PickedAdContainers = @()
+    $script:PickerAllCheckBoxes       = New-Object System.Collections.Generic.List[System.Windows.Controls.CheckBox]
+    $script:PickerCheckState          = @{ IsBulkUpdating = $false }
+    $script:PickerCheckedCountLabel   = $lblPickerCheckedCount
+    $script:PickedAdContainers        = @()
 
-    $updateCheckedSummary = {
-        $cnt = @($allCheckBoxes | Where-Object { $_.IsChecked -eq $true }).Count
-        $lblPickerCheckedCount.Text = "$cnt container(s) checked"
+    $script:UpdateAdPickerCheckedSummary = {
+        if ($null -eq $script:PickerAllCheckBoxes) { return }
+        $cnt = @($script:PickerAllCheckBoxes | Where-Object { $_.IsChecked -eq $true }).Count
+        if ($script:PickerCheckedCountLabel) {
+            $script:PickerCheckedCountLabel.Text = "$cnt container(s) checked"
+        }
     }
 
-    $loadTree = {
+    $script:LoadAdPickerTree = {
         $dom = $txtPickerDomain.Text.Trim()
         $lblPickerStatus.Text = "Loading Active Directory OU hierarchy..."
         Invoke-WpfDoEvents
@@ -7759,25 +7950,15 @@ function Select-AdContainersDialog {
             $ouResults = $ouSearcher.FindAll()
 
             $tvPickerOUs.Items.Clear()
-            $allCheckBoxes.Clear()
+            $script:PickerAllCheckBoxes.Clear()
+            if ($null -eq $script:PickerCheckState) {
+                $script:PickerCheckState = @{ IsBulkUpdating = $false }
+            } else {
+                $script:PickerCheckState.IsBulkUpdating = $false
+            }
 
             $nodeMap = @{}
             $domainCanon = ConvertFrom-DistinguishedNameToCanonical -DistinguishedName $defaultNC -IsContainerDN
-
-            $pickerCheckState = @{ IsBulkUpdating = $false }
-            $setDescendantChecks = {
-                param([System.Windows.Controls.TreeViewItem]$ParentNode, [bool]$TargetChecked)
-                if ($null -eq $ParentNode) { return }
-                foreach ($childItem in $ParentNode.Items) {
-                    if ($childItem -is [System.Windows.Controls.TreeViewItem]) {
-                        $childChk = $childItem.Header
-                        if ($childChk -is [System.Windows.Controls.CheckBox]) {
-                            $childChk.IsChecked = $TargetChecked
-                        }
-                        & $setDescendantChecks $childItem $TargetChecked
-                    }
-                }
-            }
 
             $makeCheckItem = {
                 param([string]$LabelText, [string]$DN, [string]$CanonPath, [bool]$Expand = $false)
@@ -7796,33 +7977,43 @@ function Select-AdContainersDialog {
                 }
                 $chk.Add_Checked({
                     param($sender, $e)
-                    if (-not $pickerCheckState.IsBulkUpdating) {
-                        $pickerCheckState.IsBulkUpdating = $true
+                    if ($null -eq $script:PickerCheckState) {
+                        $script:PickerCheckState = @{ IsBulkUpdating = $false }
+                    }
+                    if (-not $script:PickerCheckState.IsBulkUpdating) {
+                        $script:PickerCheckState.IsBulkUpdating = $true
                         try {
                             if ($sender.Tag -and $sender.Tag.TreeViewItem) {
-                                & $setDescendantChecks $sender.Tag.TreeViewItem $true
+                                Set-AdPickerDescendantChecks -ParentNode $sender.Tag.TreeViewItem -TargetChecked $true
                             }
                         } finally {
-                            $pickerCheckState.IsBulkUpdating = $false
+                            $script:PickerCheckState.IsBulkUpdating = $false
                         }
                     }
-                    & $updateCheckedSummary
+                    if ($script:UpdateAdPickerCheckedSummary) {
+                        & $script:UpdateAdPickerCheckedSummary
+                    }
                 })
                 $chk.Add_Unchecked({
                     param($sender, $e)
-                    if (-not $pickerCheckState.IsBulkUpdating) {
-                        $pickerCheckState.IsBulkUpdating = $true
+                    if ($null -eq $script:PickerCheckState) {
+                        $script:PickerCheckState = @{ IsBulkUpdating = $false }
+                    }
+                    if (-not $script:PickerCheckState.IsBulkUpdating) {
+                        $script:PickerCheckState.IsBulkUpdating = $true
                         try {
                             if ($sender.Tag -and $sender.Tag.TreeViewItem) {
-                                & $setDescendantChecks $sender.Tag.TreeViewItem $false
+                                Set-AdPickerDescendantChecks -ParentNode $sender.Tag.TreeViewItem -TargetChecked $false
                             }
                         } finally {
-                            $pickerCheckState.IsBulkUpdating = $false
+                            $script:PickerCheckState.IsBulkUpdating = $false
                         }
                     }
-                    & $updateCheckedSummary
+                    if ($script:UpdateAdPickerCheckedSummary) {
+                        & $script:UpdateAdPickerCheckedSummary
+                    }
                 })
-                $allCheckBoxes.Add($chk)
+                $script:PickerAllCheckBoxes.Add($chk)
                 $tvi.Header = $chk
                 $tvi.Tag = $chk.Tag
                 return $tvi
@@ -7876,10 +8067,10 @@ function Select-AdContainersDialog {
         }
     }
 
-    $btnPickerConnect.Add_Click($loadTree)
+    $btnPickerConnect.Add_Click($script:LoadAdPickerTree)
 
     $btnPickerOk.Add_Click({
-        $checkedBoxes = @($allCheckBoxes | Where-Object { $_.IsChecked -eq $true })
+        $checkedBoxes = @($script:PickerAllCheckBoxes | Where-Object { $_.IsChecked -eq $true })
         if ($checkedBoxes.Count -eq 0 -and $tvPickerOUs.SelectedItem -and $tvPickerOUs.SelectedItem.Tag) {
             # Also allow highlighting a single TreeViewItem and clicking Add
             $tagObj = $tvPickerOUs.SelectedItem.Tag
@@ -7902,29 +8093,13 @@ function Select-AdContainersDialog {
             return
         }
         $incSub = ($chkPickerSubtree.IsChecked -eq $true)
-        $hasUncheckedDescendant = {
-            param([System.Windows.Controls.TreeViewItem]$Node)
-            if ($null -eq $Node) { return $false }
-            foreach ($child in $Node.Items) {
-                if ($child -is [System.Windows.Controls.TreeViewItem]) {
-                    $cBox = $child.Header
-                    if ($cBox -is [System.Windows.Controls.CheckBox] -and $cBox.IsChecked -ne $true) {
-                        return $true
-                    }
-                    if (& $hasUncheckedDescendant $child) {
-                        return $true
-                    }
-                }
-            }
-            return $false
-        }
         $picked = New-Object System.Collections.Generic.List[PSCustomObject]
         foreach ($cb in $checkedBoxes) {
             $t = $cb.Tag
             # If user deselected any child OU under this parent OU, use OneLevel (IncludeSubtree = $false)
             # on this ancestor OU so deselected child OUs are not synced.
             $nodeIncSub = if ($incSub -and $t.TreeViewItem) {
-                (-not (& $hasUncheckedDescendant $t.TreeViewItem))
+                (-not (Test-AdPickerHasUncheckedDescendant -Node $t.TreeViewItem))
             } else {
                 $incSub
             }
@@ -7949,8 +8124,8 @@ function Select-AdContainersDialog {
     })
 
     $pWin.Add_ContentRendered({
-        if (-not [string]::IsNullOrWhiteSpace($txtPickerDomain.Text)) {
-            & $loadTree
+        if (-not [string]::IsNullOrWhiteSpace($txtPickerDomain.Text) -and $script:LoadAdPickerTree) {
+            & $script:LoadAdPickerTree
         }
     })
 
@@ -8210,7 +8385,7 @@ function Show-AdSyncDialog {
     }
     $dgAdSyncContainers.ItemsSource = $containersObs
 
-    $applyDialogToConfig = {
+    $script:ApplyAdSyncDialogToConfig = {
         $dVal = 0; [void][int]::TryParse($txtSyncDays.Text.Trim(), [ref]$dVal)
         $hVal = 4; [void][int]::TryParse($txtSyncHours.Text.Trim(), [ref]$hVal)
         $mVal = 0; [void][int]::TryParse($txtSyncMinutes.Text.Trim(), [ref]$mVal)
@@ -8229,7 +8404,7 @@ function Show-AdSyncDialog {
         Update-AdAutoSyncTimer
     }
 
-    $addPickedContainers = {
+    $script:AddPickedAdContainers = {
         param([string]$Mode)
         $picked = @(Select-AdContainersDialog -SyncType $Mode -InitialDomain $script:AdSyncConfig.Domain)
         foreach ($p in $picked) {
@@ -8250,8 +8425,8 @@ function Show-AdSyncDialog {
         $dgAdSyncContainers.Items.Refresh()
     }
 
-    $btnAdIncludeContainer.Add_Click({ & $addPickedContainers "Include" })
-    $btnAdExcludeContainer.Add_Click({ & $addPickedContainers "Exclude" })
+    $btnAdIncludeContainer.Add_Click({ if ($script:AddPickedAdContainers) { & $script:AddPickedAdContainers "Include" } })
+    $btnAdExcludeContainer.Add_Click({ if ($script:AddPickedAdContainers) { & $script:AddPickedAdContainers "Exclude" } })
 
     $btnAdEditContainer.Add_Click({
         $sel = $dgAdSyncContainers.SelectedItem
@@ -8285,20 +8460,20 @@ function Show-AdSyncDialog {
     })
 
     $btnAdSyncNow.Add_Click({
-        & $applyDialogToConfig
+        if ($script:ApplyAdSyncDialogToConfig) { & $script:ApplyAdSyncDialogToConfig }
         [void](Invoke-AdSync)
         $lblAdLastSyncTime.Text   = "$($script:AdSyncConfig.LastSyncTime)"
         $lblAdLastSyncStatus.Text = "$($script:AdSyncConfig.LastSyncStatus)"
     })
 
     $btnAdBrowseIndividual.Add_Click({
-        & $applyDialogToConfig
+        if ($script:ApplyAdSyncDialogToConfig) { & $script:ApplyAdSyncDialogToConfig }
         $sWin.Close()
         Show-ActiveDirectoryImportDialog
     })
 
     $btnAdSyncSave.Add_Click({
-        & $applyDialogToConfig
+        if ($script:ApplyAdSyncDialogToConfig) { & $script:ApplyAdSyncDialogToConfig }
         if ($containersObs.Count -gt 0 -and $script:AdSyncConfig.LastSyncTime -eq "Never") {
             [void](Invoke-AdSync)
         }
@@ -8628,6 +8803,27 @@ function Test-TrustedHostMatch {
     return $false
 }
 
+function Test-IsLocalComputer {
+    param([string]$ComputerName)
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) { return $false }
+    $clean = $ComputerName.Trim()
+    if ($clean -in @('localhost', '127.0.0.1', '::1', '.')) { return $true }
+    $short = ($clean -split '\.')[0]
+    if ($short -ieq $env:COMPUTERNAME -or $short -ieq [System.Environment]::MachineName) { return $true }
+    try {
+        $dnsHost = [System.Net.Dns]::GetHostName()
+        if ($clean -ieq $dnsHost -or $short -ieq ($dnsHost -split '\.')[0]) { return $true }
+    } catch {}
+    try {
+        foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            foreach ($ua in $ni.GetIPProperties().UnicastAddresses) {
+                if ($ua.Address -and $ua.Address.IPAddressToString -ieq $clean) { return $true }
+            }
+        }
+    } catch {}
+    return $false
+}
+
 function Get-MissingTrustedHosts {
     param(
         [string[]]$TargetList,
@@ -8643,6 +8839,7 @@ function Get-MissingTrustedHosts {
 
     $missing = @()
     foreach ($t in $TargetList) {
+        if (Test-IsLocalComputer -ComputerName $t) { continue }
         $isIP = ($t -match '^\d{1,3}(\.\d{1,3}){3}$') -or ($t -match ':')
         $needs = $isIP -or ($Kind -eq 'Local') -or ($Kind -eq 'Bare')
         if ($needs -and -not (Test-TrustedHostMatch $t $entries)) {
@@ -8676,6 +8873,10 @@ function Test-TargetReachable {
         [string]$ComputerName,
         [int]$TimeoutMs = 2500
     )
+
+    if (Test-IsLocalComputer -ComputerName $ComputerName) {
+        return $true
+    }
 
     # 1. Test TCP WinRM HTTP (5985) and HTTPS (5986)
     foreach ($port in @(5985, 5986)) {
@@ -9815,9 +10016,10 @@ function Invoke-DeploymentForTargets {
         return
     }
 
+    $hasRemoteTargets = @($TargetComputers | Where-Object { -not (Test-IsLocalComputer -ComputerName $_) }).Count -gt 0
     $useCurrentCred = [bool]$script:AppSettings.UseCurrentCred
     $hasSavedCred = (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Username)) -and ($null -ne $script:AppSettings.SecurePassword -and $script:AppSettings.SecurePassword.Length -gt 0)
-    if (-not $useCurrentCred -and -not $hasSavedCred) {
+    if ($hasRemoteTargets -and -not $useCurrentCred -and -not $hasSavedCred) {
         $ans = [System.Windows.MessageBox]::Show("Admin credentials are not configured.`n`nOpen Settings dialog now to configure credentials or select current logon?", "Credentials Required", "YesNo", "Warning")
         if ($ans -eq 'Yes') {
             Show-SettingsDialog
@@ -9929,7 +10131,7 @@ function Invoke-DeploymentForTargets {
     $script:ActiveDeploySharedState = $sharedState
 
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    foreach ($fnName in @('Test-TargetReachable', 'Get-WinRMHint')) {
+    foreach ($fnName in @('Test-IsLocalComputer', 'Test-TargetReachable', 'Get-WinRMHint')) {
         $fnCmd = Get-Command $fnName -CommandType Function -ErrorAction SilentlyContinue
         if ($fnCmd) {
             $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($fnName, $fnCmd.Definition)))
@@ -10014,9 +10216,15 @@ function Invoke-DeploymentForTargets {
             return
         }
 
-        Send-RowUpdate -Step "Preflight Check" -Status "Running..." -Details "Checking network/WinRM reachability on $Computer..."
-        Send-Log "Target '$Computer': Reachability check..."
-        $isReachable = Test-TargetReachable -ComputerName $Computer -TimeoutMs 2500
+        $isLocalHost = Test-IsLocalComputer -ComputerName $Computer
+        if ($isLocalHost) {
+            $isReachable = $true
+            Send-Log "Target '$Computer': Local computer detected — executing directly on local machine (bypassing WinRM)."
+        } else {
+            Send-RowUpdate -Step "Preflight Check" -Status "Running..." -Details "Checking network/WinRM reachability on $Computer..."
+            Send-Log "Target '$Computer': Reachability check..."
+            $isReachable = Test-TargetReachable -ComputerName $Computer -TimeoutMs 2500
+        }
 
         if ($SharedState.CancelRequested) {
             $stopMsg = "Deployment stopped by user during reachability check."
@@ -10046,47 +10254,49 @@ function Invoke-DeploymentForTargets {
         }
 
         $session = $null
-        $authStr = if ($CredInfo.Credential) { $CredInfo.Credential.UserName } else { 'DefaultLogon' }
-        Send-Log "Target '$Computer': Opening WinRM PSSession (Auth=$authStr)..."
-        try {
-            $sOpt = New-PSSessionOption -OpenTimeout 15000 -OperationTimeout 180000 -CancelTimeout 10000
-            $sessParams = @{
-                ComputerName  = $Computer
-                SessionOption = $sOpt
-                ErrorAction   = 'Stop'
+        if (-not $isLocalHost) {
+            $authStr = if ($CredInfo.Credential) { $CredInfo.Credential.UserName } else { 'DefaultLogon' }
+            Send-Log "Target '$Computer': Opening WinRM PSSession (Auth=$authStr)..."
+            try {
+                $sOpt = New-PSSessionOption -OpenTimeout 15000 -OperationTimeout 180000 -CancelTimeout 10000
+                $sessParams = @{
+                    ComputerName  = $Computer
+                    SessionOption = $sOpt
+                    ErrorAction   = 'Stop'
+                }
+                if ($CredInfo.Credential) {
+                    $sessParams['Credential'] = $CredInfo.Credential
+                }
+                $session = New-PSSession @sessParams
+                Send-Log "Target '$Computer': WinRM PSSession opened successfully."
             }
-            if ($CredInfo.Credential) {
-                $sessParams['Credential'] = $CredInfo.Credential
-            }
-            $session = New-PSSession @sessParams
-            Send-Log "Target '$Computer': WinRM PSSession opened successfully."
-        }
-        catch {
-            if ($SharedState.CancelRequested) {
-                $stopMsg = "Deployment stopped by user while opening WinRM session."
-                Send-RowUpdate -Step "$($Steps[$StartStepIndex].Order). $($Steps[$StartStepIndex].Name)" -Status "Stopped" -Details $stopMsg
-                for ($idx = $StartStepIndex; $idx -lt $Steps.Count; $idx++) {
+            catch {
+                if ($SharedState.CancelRequested) {
+                    $stopMsg = "Deployment stopped by user while opening WinRM session."
+                    Send-RowUpdate -Step "$($Steps[$StartStepIndex].Order). $($Steps[$StartStepIndex].Name)" -Status "Stopped" -Details $stopMsg
+                    for ($idx = $StartStepIndex; $idx -lt $Steps.Count; $idx++) {
+                        $st = $Steps[$idx]
+                        $stStatus = if ($idx -eq $StartStepIndex) { "Stopped" } else { "Skipped" }
+                        $stDetails = if ($idx -eq $StartStepIndex) { $stopMsg } else { "Skipped — deployment stopped by user." }
+                        Send-StepHistory -StepIndex $idx -StepOrder $st.Order -StepName $st.Name -StepType $st.Type -Status $stStatus -Duration "0.0s" -Seconds 0.0 -Details $stDetails
+                    }
+                    Send-TargetDone "Stopped"
+                    return
+                }
+                $rawError = $_.Exception.Message
+                Send-Log "Target '$Computer': WinRM PSSession failed: $rawError" "ERROR"
+                $hint = Get-WinRMHint -Message $rawError -CredKind $CredInfo.CredKind
+                $failMsg = "WINRM SESSION FAILED (Auth: $($CredInfo.UserString)): $hint$rawError"
+                Send-RowUpdate -Step "$($Steps[0].Order). $($Steps[0].Name)" -Status "Failed" -Details $failMsg -FailedStepIndex 0
+                for ($idx = 0; $idx -lt $Steps.Count; $idx++) {
                     $st = $Steps[$idx]
-                    $stStatus = if ($idx -eq $StartStepIndex) { "Stopped" } else { "Skipped" }
-                    $stDetails = if ($idx -eq $StartStepIndex) { $stopMsg } else { "Skipped — deployment stopped by user." }
+                    $stStatus = if ($idx -eq 0) { "Failed" } else { "Skipped" }
+                    $stDetails = if ($idx -eq 0) { $failMsg } else { "Skipped — session initialization failed." }
                     Send-StepHistory -StepIndex $idx -StepOrder $st.Order -StepName $st.Name -StepType $st.Type -Status $stStatus -Duration "0.0s" -Seconds 0.0 -Details $stDetails
                 }
-                Send-TargetDone "Stopped"
+                Send-TargetDone "Failed"
                 return
             }
-            $rawError = $_.Exception.Message
-            Send-Log "Target '$Computer': WinRM PSSession failed: $rawError" "ERROR"
-            $hint = Get-WinRMHint -Message $rawError -CredKind $CredInfo.CredKind
-            $failMsg = "WINRM SESSION FAILED (Auth: $($CredInfo.UserString)): $hint$rawError"
-            Send-RowUpdate -Step "$($Steps[0].Order). $($Steps[0].Name)" -Status "Failed" -Details $failMsg -FailedStepIndex 0
-            for ($idx = 0; $idx -lt $Steps.Count; $idx++) {
-                $st = $Steps[$idx]
-                $stStatus = if ($idx -eq 0) { "Failed" } else { "Skipped" }
-                $stDetails = if ($idx -eq 0) { $failMsg } else { "Skipped — session initialization failed." }
-                Send-StepHistory -StepIndex $idx -StepOrder $st.Order -StepName $st.Name -StepType $st.Type -Status $stStatus -Duration "0.0s" -Seconds 0.0 -Details $stDetails
-            }
-            Send-TargetDone "Failed"
-            return
         }
 
         $compFailed  = $false
@@ -10145,20 +10355,32 @@ function Invoke-DeploymentForTargets {
                 if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
                     if (Test-Path $step.PayloadPath) {
                         $payloadFileOnly = [System.IO.Path]::GetFileName($step.PayloadPath)
-                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging payload ($payloadFileOnly) to remote target..."
+                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging payload ($payloadFileOnly) to target..."
                         Send-Log "Target '$Computer': Staging payload '$payloadFileOnly' (IncludeFolder=$($step.IncludeFolder))..."
 
                         $remoteStepDir = "$RemoteStaging\Step_$($step.Order)"
-                        Invoke-Command -Session $session -ScriptBlock {
-                            param($d)
-                            if (-not (Test-Path $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
-                        } -ArgumentList $remoteStepDir
-
-                        if ($step.IncludeFolder) {
-                            $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
-                            Copy-Item -LiteralPath $parentDir -Destination $RemoteStaging -ToSession $session -Recurse -Force
+                        if ($isLocalHost) {
+                            if (-not (Test-Path -LiteralPath $remoteStepDir)) {
+                                [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
+                            }
+                            if ($step.IncludeFolder) {
+                                $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
+                                Copy-Item -LiteralPath $parentDir -Destination $RemoteStaging -Recurse -Force
+                            } else {
+                                Copy-Item -LiteralPath $step.PayloadPath -Destination $remoteStepDir -Force
+                            }
                         } else {
-                            Copy-Item -LiteralPath $step.PayloadPath -Destination $remoteStepDir -ToSession $session -Force
+                            Invoke-Command -Session $session -ScriptBlock {
+                                param($d)
+                                if (-not (Test-Path $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
+                            } -ArgumentList $remoteStepDir
+
+                            if ($step.IncludeFolder) {
+                                $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
+                                Copy-Item -LiteralPath $parentDir -Destination $RemoteStaging -ToSession $session -Recurse -Force
+                            } else {
+                                Copy-Item -LiteralPath $step.PayloadPath -Destination $remoteStepDir -ToSession $session -Force
+                            }
                         }
                         Send-Log "Target '$Computer': Payload staging complete."
                     } else {
@@ -10174,45 +10396,106 @@ function Invoke-DeploymentForTargets {
                 }
 
                 $job = $null
+                $localPs = $null
                 try {
                     $invokeArgs = @($step.Script, $step.Parameters, $RemoteStaging, $step.Order, $step.Name, $step.Type, $payloadFileOnly, ([bool]$step.SilentInstall))
-                    $job = Invoke-Command -Session $session -ScriptBlock $runnerSb -ArgumentList $invokeArgs -AsJob -ErrorAction Stop
-
                     $lastLiveLine = ""
                     $streamItems = [System.Collections.Generic.List[Object]]::new()
                     $lastHeartbeat = 0
                     $lastSecTick = -1
+                    $stepWasStopped = $false
 
-                    while ($job.State -eq 'Running' -or $job.State -eq 'NotStarted') {
-                        for ($pollTick = 0; $pollTick -lt 5; $pollTick++) {
-                            Start-Sleep -Milliseconds 50
-                            if ($SharedState.CancelRequested) { break }
-                        }
-                        if ($SharedState.CancelRequested) {
-                            try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch {}
-                            break
-                        }
-                        $received = @(Receive-Job -Job $job -ErrorAction SilentlyContinue)
-                        foreach ($item in $received) {
-                            $streamItems.Add($item)
-                            if ($item.PSObject.Properties['IsLiveProgress'] -and $item.IsLiveProgress -eq $true) {
-                                $lastLiveLine = $item.Line
+                    if ($isLocalHost) {
+                        $localPs = [powershell]::Create()
+                        [void]$localPs.AddScript($runnerSb)
+                        foreach ($argVal in $invokeArgs) { [void]$localPs.AddArgument($argVal) }
+                        $localOut = New-Object 'System.Management.Automation.PSDataCollection[psobject]'
+                        $localAsync = $localPs.BeginInvoke($null, $localOut)
+                        $localReadIdx = 0
+
+                        while (-not $localAsync.IsCompleted) {
+                            for ($pollTick = 0; $pollTick -lt 5; $pollTick++) {
+                                Start-Sleep -Milliseconds 50
+                                if ($SharedState.CancelRequested) { break }
+                            }
+                            if ($SharedState.CancelRequested) {
+                                $stepWasStopped = $true
+                                try { $localPs.Stop() } catch {}
+                                break
+                            }
+                            while ($localReadIdx -lt $localOut.Count) {
+                                $item = $localOut[$localReadIdx]
+                                $localReadIdx++
+                                if ($null -ne $item) {
+                                    $streamItems.Add($item)
+                                    if ($item.PSObject.Properties['IsLiveProgress'] -and $item.IsLiveProgress -eq $true) {
+                                        $lastLiveLine = $item.Line
+                                    }
+                                }
+                            }
+                            $currentSec = [int]$sw.Elapsed.TotalSeconds
+                            if ($currentSec -ne $lastSecTick) {
+                                $lastSecTick = $currentSec
+                                $currentDur = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
+                                $currentDetails = if ($lastLiveLine) { $lastLiveLine } else { "Executing step $($step.Order) locally on $Computer... ($currentDur)" }
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $currentDetails -LiveDuration $currentDur
+                            }
+                            if ($currentSec - $lastHeartbeat -ge 10) {
+                                $lastHeartbeat = $currentSec
+                                Send-Log "Target '$Computer': Step $($step.Order) heartbeat - running locally for $($currentSec)s..."
                             }
                         }
-                        $currentSec = [int]$sw.Elapsed.TotalSeconds
-                        if ($currentSec -ne $lastSecTick) {
-                            $lastSecTick = $currentSec
-                            $currentDur = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
-                            $currentDetails = if ($lastLiveLine) { $lastLiveLine } else { "Executing step $($step.Order) on $Computer... ($currentDur)" }
-                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $currentDetails -LiveDuration $currentDur
+
+                        if (-not $stepWasStopped -and -not $SharedState.CancelRequested) {
+                            try { $null = $localPs.EndInvoke($localAsync) } catch {}
+                            while ($localReadIdx -lt $localOut.Count) {
+                                $item = $localOut[$localReadIdx]
+                                $localReadIdx++
+                                if ($null -ne $item) { $streamItems.Add($item) }
+                            }
                         }
-                        if ($currentSec - $lastHeartbeat -ge 10) {
-                            $lastHeartbeat = $currentSec
-                            Send-Log "Target '$Computer': Step $($step.Order) heartbeat - running for $($currentSec)s..."
+                    } else {
+                        $job = Invoke-Command -Session $session -ScriptBlock $runnerSb -ArgumentList $invokeArgs -AsJob -ErrorAction Stop
+
+                        while ($job.State -eq 'Running' -or $job.State -eq 'NotStarted') {
+                            for ($pollTick = 0; $pollTick -lt 5; $pollTick++) {
+                                Start-Sleep -Milliseconds 50
+                                if ($SharedState.CancelRequested) { break }
+                            }
+                            if ($SharedState.CancelRequested) {
+                                $stepWasStopped = $true
+                                try { Stop-Job -Job $job -ErrorAction SilentlyContinue } catch {}
+                                break
+                            }
+                            $received = @(Receive-Job -Job $job -ErrorAction SilentlyContinue)
+                            foreach ($item in $received) {
+                                $streamItems.Add($item)
+                                if ($item.PSObject.Properties['IsLiveProgress'] -and $item.IsLiveProgress -eq $true) {
+                                    $lastLiveLine = $item.Line
+                                }
+                            }
+                            $currentSec = [int]$sw.Elapsed.TotalSeconds
+                            if ($currentSec -ne $lastSecTick) {
+                                $lastSecTick = $currentSec
+                                $currentDur = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
+                                $currentDetails = if ($lastLiveLine) { $lastLiveLine } else { "Executing step $($step.Order) on $Computer... ($currentDur)" }
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $currentDetails -LiveDuration $currentDur
+                            }
+                            if ($currentSec - $lastHeartbeat -ge 10) {
+                                $lastHeartbeat = $currentSec
+                                Send-Log "Target '$Computer': Step $($step.Order) heartbeat - running for $($currentSec)s..."
+                            }
+                        }
+
+                        if (-not $stepWasStopped -and -not $SharedState.CancelRequested -and $job.State -ne 'Stopped') {
+                            $finalReceived = @(Receive-Job -Job $job -Wait -ErrorAction Stop)
+                            foreach ($item in $finalReceived) { $streamItems.Add($item) }
+                        } else {
+                            $stepWasStopped = $true
                         }
                     }
 
-                    if ($SharedState.CancelRequested -or $job.State -eq 'Stopped') {
+                    if ($SharedState.CancelRequested -or $stepWasStopped) {
                         $sw.Stop()
                         $stepDurStr = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
                         $compStopped = $true
@@ -10227,8 +10510,6 @@ function Invoke-DeploymentForTargets {
                         break
                     }
 
-                    $finalReceived = @(Receive-Job -Job $job -Wait -ErrorAction Stop)
-                    foreach ($item in $finalReceived) { $streamItems.Add($item) }
                     $sw.Stop()
                     $stepDurStr = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
 
@@ -10285,6 +10566,9 @@ function Invoke-DeploymentForTargets {
                     }
                 }
                 finally {
+                    if ($null -ne $localPs) {
+                        try { $localPs.Dispose() } catch {}
+                    }
                     if ($null -ne $job -and $job -is [System.Management.Automation.Job]) {
                         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch {}
                     }
