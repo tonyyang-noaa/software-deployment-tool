@@ -1,5 +1,0 @@
-{"ts":"2026-10-26T03:04:20Z","task_id":"PKG-STEPS-MODAL-UI","lane":"L2","C":4,"F":2,"I":1,"accepted":true,"gate1":"PASS","gate2":"PASS","strikes":1,"retry_tokens_m":0.018,"in_m":0.6920,"out_m":0.1980,"cost_usd":1.3960}
-{"ts":"2026-10-26T08:11:30Z","task_id":"WORKSPACE-SELF-AUDIT","lane":"L2","C":4,"F":0,"I":0,"accepted":true,"gate1":"PASS","gate2":"PASS","strikes":0,"retry_tokens_m":0.000,"in_m":0.0650,"out_m":0.0118,"cost_usd":0.2480}
-{"ts":"2026-10-26T08:22:15Z","task_id":"MITIGATION-PLAN-BUILDER","lane":"L2","C":4,"F":0,"I":0,"accepted":true,"gate1":"PASS","gate2":"PASS","strikes":0,"retry_tokens_m":0.000,"in_m":0.0225,"out_m":0.0045,"cost_usd":0.0900}
-{"ts":"2026-10-26T08:46:00Z","task_id":"MITIGATION-PLAN-EXECUTION","lane":"L3","C":9,"F":16,"I":0,"accepted":true,"gate1":"PASS","gate2":"PASS","strikes":0,"retry_tokens_m":0.000,"in_m":0.0680,"out_m":0.0145,"cost_usd":0.2810}
-{"timestamp":"2026-10-26T15:50:42Z","task_id":"T-REPACKAGE-EXE-01","lane":"L1","wave":"W1","status":"PASS","sha256":"D5A4DB83C57BF748D0D59D0CBFA0C5791AC616B978D94875B258D02B02330497","in_m":0.040,"out_m":0.012,"est_cost_usd":0.0800}
