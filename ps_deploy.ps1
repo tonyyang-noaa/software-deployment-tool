@@ -688,11 +688,8 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="🚀 DEPLOYMENT" FontWeight="Bold" Foreground="#89B4FA" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                <Border Background="#11111B" BorderBrush="#313244" BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="0,0,8,0">
-                                    <TextBlock x:Name="lblDeployActivePkg" Text="Active Package: Custom Deployment Package (0 steps)" Foreground="#A6E3A1" FontSize="11.5" FontWeight="SemiBold"/>
-                                </Border>
                                 <Border Background="#11111B" BorderBrush="#313244" BorderThickness="1" CornerRadius="4" Padding="8,2">
-                                    <TextBlock x:Name="lblDeployRunningBadge" Text="" Foreground="#F9E2AF" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="lblDeployActivePkg" Text="Active Package: Custom Deployment Package (0 steps)" Foreground="#A6E3A1" FontSize="11.5" FontWeight="SemiBold"/>
                                 </Border>
                             </StackPanel>
                             <Button x:Name="btnSelectAllDeployPkgs" Grid.Column="2" Content="🧹 Clear History" Height="27" Width="Auto" Padding="10,2" FontSize="11" Background="#45475A" Foreground="#CDD6F4" Margin="0,0,6,0" ToolTip="Clear completed deployment runs from Deployment History"/>
@@ -5989,17 +5986,22 @@ $btnDeletePkg.Add_Click({
         $lblStatus.Text = "Deleted library folder '$($folder.Name)'."
     }
 })
-Load-PackageLibrary
-
 # ==========================================
-# 5. TARGET COMPUTERS DISCOVERY ENGINE (ASYNC RUNSPACEPOOL + DISPATCHERTIMER)
+# 5. TARGET COMPUTERS DISCOVERY ENGINE (BATCHED ASYNC RUNSPACEPOOL + NON-BLOCKING UI DISPATCHERTIMER)
 # ==========================================
-$script:ProbeRunspacePool    = $null
-$script:ActiveProbeJobs      = New-Object System.Collections.ArrayList
-$script:ProbeTotalQueued     = 0
-$script:ProbeCompletedCount  = 0
-$script:ProbeDispatcherTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:ProbeDispatcherTimer.Interval = [TimeSpan]::FromMilliseconds(180)
+$script:ProbeRunspacePool      = $null
+$script:ActiveProbeJobs        = New-Object System.Collections.ArrayList
+$script:PendingProbeQueue      = New-Object System.Collections.Generic.Queue[object]
+$script:PendingProbeKeys       = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$script:MaxConcurrentProbes    = 10
+$script:ProbeBatchDispatchSize = 5
+$script:ProbeTotalQueued       = 0
+$script:ProbeCompletedCount    = 0
+$script:LastProbeUiRefresh     = [datetime]::MinValue
+$script:CurrentProbeCred       = $null
+$script:CurrentProbeDomainHint = ""
+$script:ProbeDispatcherTimer   = New-Object System.Windows.Threading.DispatcherTimer
+$script:ProbeDispatcherTimer.Interval = [TimeSpan]::FromMilliseconds(220)
 
 $script:TargetProbeWorkerScriptBlock = {
     param(
@@ -6118,7 +6120,7 @@ $script:TargetProbeWorkerScriptBlock = {
             $ping = New-Object System.Net.NetworkInformation.Ping
             try {
                 for ($attempt = 1; $attempt -le 2; $attempt++) {
-                    $reply = $ping.Send($pingTarget, 900)
+                    $reply = $ping.Send($pingTarget, 850)
                     if ($reply -and $reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
                         $isOnline = $true
                         if ($res.IPAddress -eq "N/A" -and $reply.Address -and $reply.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
@@ -6133,148 +6135,158 @@ $script:TargetProbeWorkerScriptBlock = {
         } catch {}
     }
 
-    if (-not $isOnline) {
-        $tcpEntries = New-Object System.Collections.Generic.List[object]
-        foreach ($port in @(5985, 5986, 445, 135, 3389, 139, 22, 80, 443)) {
-            try {
-                $tcp = New-Object System.Net.Sockets.TcpClient
-                $iar = $tcp.BeginConnect($probeHost, $port, $null, $null)
-                [void]$tcpEntries.Add([PSCustomObject]@{ Client = $tcp; Async = $iar })
-            } catch {}
-        }
-        $swTcp = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($swTcp.ElapsedMilliseconds -lt 1000 -and -not $isOnline) {
-            $allDone = $true
-            foreach ($entry in $tcpEntries) {
-                if ($entry.Async.IsCompleted) {
-                    if ($entry.Client.Connected) {
-                        $isOnline = $true
-                        break
-                    }
+    # Check management ports in parallel (also serves as reachability probe if ICMP was blocked)
+    $portOpen = @{ 5985 = $false; 135 = $false; 445 = $false }
+    $portsToCheck = if ($isOnline) { @(5985, 135, 445) } else { @(5985, 5986, 445, 135, 3389, 139, 22, 80, 443) }
+    $tcpEntries = New-Object System.Collections.Generic.List[object]
+    foreach ($port in $portsToCheck) {
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $iar = $tcp.BeginConnect($probeHost, $port, $null, $null)
+            [void]$tcpEntries.Add([PSCustomObject]@{ Port = $port; Client = $tcp; Async = $iar; Done = $false })
+        } catch {}
+    }
+    $swTcp = [System.Diagnostics.Stopwatch]::StartNew()
+    $tcpWaitMs = if ($isOnline) { 550 } else { 950 }
+    while ($swTcp.ElapsedMilliseconds -lt $tcpWaitMs) {
+        $allDone = $true
+        foreach ($entry in $tcpEntries) {
+            if ($entry.Done) { continue }
+            if ($entry.Async.IsCompleted) {
+                $entry.Done = $true
+                if ($entry.Client.Connected) {
+                    $isOnline = $true
+                    if ($portOpen.ContainsKey($entry.Port)) { $portOpen[$entry.Port] = $true }
+                } else {
                     try {
                         $entry.Client.EndConnect($entry.Async)
-                        if ($entry.Client.Connected) { $isOnline = $true; break }
+                        if ($entry.Client.Connected) {
+                            $isOnline = $true
+                            if ($portOpen.ContainsKey($entry.Port)) { $portOpen[$entry.Port] = $true }
+                        }
                     } catch [System.Net.Sockets.SocketException] {
                         if ($_.Exception.SocketErrorCode -in @(
                             [System.Net.Sockets.SocketError]::ConnectionRefused,
                             [System.Net.Sockets.SocketError]::AccessDenied
                         )) {
                             $isOnline = $true
-                            break
                         }
                     } catch {}
-                } else {
-                    $allDone = $false
                 }
+            } else {
+                $allDone = $false
             }
-            if ($isOnline -or $allDone) { break }
-            Start-Sleep -Milliseconds 40
         }
-        foreach ($entry in $tcpEntries) {
-            try { $entry.Client.Close() } catch {}
-        }
+        if ($allDone -or ($isOnline -and $portOpen[5985])) { break }
+        Start-Sleep -Milliseconds 30
+    }
+    foreach ($entry in $tcpEntries) {
+        try { $entry.Client.Close() } catch {}
     }
 
     if ($isOnline) {
         $res.OnlineStatus = "Online"
         $res.CurrentUser  = "Unknown (Access/Firewall)"
-        # Query CurrentUser in a bounded sub-pipeline (max 4500ms) using configured credentials + WSMan/DCOM + explorer.exe RDP fallback
-        $cimPs = [powershell]::Create()
-        try {
-            [void]$cimPs.AddScript({
-                param(
-                    [string]$TargetHost,
-                    [string]$FallbackHost,
-                    [System.Management.Automation.PSCredential]$Cred
-                )
-                $resolveSessionUser = {
-                    param($CimSession)
-                    $cs = Get-CimInstance -CimSession $CimSession -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 3 -ErrorAction Stop
-                    if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
-                        return [string]$cs.UserName
-                    }
-                    # Fallback for RDP / terminal sessions where Win32_ComputerSystem.UserName is empty
-                    try {
-                        $procs = @(Get-CimInstance -CimSession $CimSession -ClassName Win32_Process -Filter "Name='explorer.exe'" -OperationTimeoutSec 3 -ErrorAction SilentlyContinue)
-                        foreach ($p in $procs) {
-                            $ownerRes = Invoke-CimMethod -CimSession $CimSession -InputObject $p -MethodName GetOwner -OperationTimeoutSec 3 -ErrorAction SilentlyContinue
-                            if ($ownerRes -and -not [string]::IsNullOrWhiteSpace($ownerRes.User)) {
-                                if (-not [string]::IsNullOrWhiteSpace($ownerRes.Domain)) {
-                                    return "$($ownerRes.Domain)\$($ownerRes.User)"
-                                }
-                                return [string]$ownerRes.User
-                            }
-                        }
-                    } catch {}
-                    return "None (No User Logged On)"
-                }
 
-                $hostCandidates = New-Object System.Collections.Generic.List[string]
-                if (-not [string]::IsNullOrWhiteSpace($TargetHost)) { [void]$hostCandidates.Add($TargetHost) }
-                if (-not [string]::IsNullOrWhiteSpace($FallbackHost) -and -not $hostCandidates.Contains($FallbackHost)) {
-                    [void]$hostCandidates.Add($FallbackHost)
-                }
-
-                foreach ($h in $hostCandidates) {
-                    if ($null -ne $Cred) {
-                        # 1. Try WSMan with configured credentials
-                        try {
-                            $s = New-CimSession -ComputerName $h -Credential $Cred -OperationTimeoutSec 3 -ErrorAction Stop
-                            try {
-                                return (& $resolveSessionUser $s)
-                            } finally {
-                                Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
-                            }
-                        } catch {}
-
-                        # 2. Try DCOM with configured credentials
-                        try {
-                            $dcomOpt = New-CimSessionOption -Protocol Dcom
-                            $s = New-CimSession -ComputerName $h -Credential $Cred -SessionOption $dcomOpt -OperationTimeoutSec 3 -ErrorAction Stop
-                            try {
-                                return (& $resolveSessionUser $s)
-                            } finally {
-                                Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
-                            }
-                        } catch {}
-                    }
-
-                    # 3. Try WSMan with current Windows identity
-                    try {
-                        $s = New-CimSession -ComputerName $h -OperationTimeoutSec 2 -ErrorAction Stop
-                        try {
-                            return (& $resolveSessionUser $s)
-                        } finally {
-                            Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
-                        }
-                    } catch {}
-
-                    # 4. Try DCOM with current Windows identity
-                    try {
-                        $dcomOpt = New-CimSessionOption -Protocol Dcom
-                        $s = New-CimSession -ComputerName $h -SessionOption $dcomOpt -OperationTimeoutSec 2 -ErrorAction Stop
-                        try {
-                            return (& $resolveSessionUser $s)
-                        } finally {
-                            Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
-                        }
-                    } catch {}
-                }
-                return "Unknown (Access/Firewall)"
-            }).AddArgument($resolvedTarget).AddArgument($probeHost).AddArgument($ProbeCred)
-            $cimAsync = $cimPs.BeginInvoke()
-            if ($cimAsync.AsyncWaitHandle.WaitOne(4500, $false)) {
-                $cimOut = @($cimPs.EndInvoke($cimAsync))
-                if ($cimOut.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$cimOut[0])) {
-                    $res.CurrentUser = [string]$cimOut[0]
-                }
-            } else {
-                try { $cimPs.Stop() } catch {}
+        # Fast-path helper to extract interactive user from an established CIM session
+        $resolveSessionUser = {
+            param($CimSession)
+            $cs = Get-CimInstance -CimSession $CimSession -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 4 -ErrorAction Stop
+            if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
+                return ([string]$cs.UserName).Trim()
             }
-        } catch {
-            $res.CurrentUser = "Unknown (Access/Firewall)"
-        } finally {
-            try { $cimPs.Dispose() } catch {}
+            # Fallback for RDP / secondary / locked interactive sessions where Win32_ComputerSystem.UserName is empty
+            try {
+                $procs = @(Get-CimInstance -CimSession $CimSession -ClassName Win32_Process -Filter "Name='explorer.exe' OR Name='sihost.exe'" -OperationTimeoutSec 4 -ErrorAction SilentlyContinue)
+                foreach ($p in $procs) {
+                    $ownerRes = Invoke-CimMethod -CimSession $CimSession -InputObject $p -MethodName GetOwner -OperationTimeoutSec 3 -ErrorAction SilentlyContinue
+                    if ($ownerRes -and -not [string]::IsNullOrWhiteSpace($ownerRes.User)) {
+                        $u = ([string]$ownerRes.User).Trim()
+                        if ($u -notmatch '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE|UMFD-\d+|DWM-\d+)$') {
+                            if (-not [string]::IsNullOrWhiteSpace($ownerRes.Domain)) {
+                                return "$($ownerRes.Domain)\$u"
+                            }
+                            return $u
+                        }
+                    }
+                }
+            } catch {}
+            return "None (No User Logged On)"
+        }
+
+        $hostCandidates = New-Object System.Collections.Generic.List[string]
+        if (-not [string]::IsNullOrWhiteSpace($resolvedTarget)) { [void]$hostCandidates.Add($resolvedTarget) }
+        if (-not [string]::IsNullOrWhiteSpace($cleanName) -and -not $hostCandidates.Contains($cleanName)) {
+            [void]$hostCandidates.Add($cleanName)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($probeHost) -and -not $hostCandidates.Contains($probeHost)) {
+            [void]$hostCandidates.Add($probeHost)
+        }
+
+        $resolvedUser = $null
+
+        # 1. Direct WSMan query inside the worker runspace (no nested [powershell]::Create() contention!)
+        if ($portOpen[5985] -or (-not $portOpen[135])) {
+            foreach ($h in $hostCandidates) {
+                if ($null -ne $resolvedUser) { break }
+                if ($null -ne $ProbeCred) {
+                    for ($try = 1; $try -le 2; $try++) {
+                        try {
+                            $s = New-CimSession -ComputerName $h -Credential $ProbeCred -OperationTimeoutSec 4 -ErrorAction Stop
+                            try {
+                                $resolvedUser = (& $resolveSessionUser $s)
+                                break
+                            } finally {
+                                Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                            }
+                        } catch {
+                            if ($try -eq 1 -and $portOpen[5985]) { Start-Sleep -Milliseconds 180 }
+                        }
+                    }
+                    if ($null -ne $resolvedUser) { break }
+                }
+                try {
+                    $s = New-CimSession -ComputerName $h -OperationTimeoutSec 3 -ErrorAction Stop
+                    try {
+                        $resolvedUser = (& $resolveSessionUser $s)
+                        break
+                    } finally {
+                        Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                    }
+                } catch {}
+            }
+        }
+
+        # 2. DCOM fallback only if WSMan did not succeed AND RPC port 135 is open
+        if ($null -eq $resolvedUser -and $portOpen[135]) {
+            $dcomOpt = New-CimSessionOption -Protocol Dcom
+            foreach ($h in $hostCandidates) {
+                if ($null -ne $resolvedUser) { break }
+                if ($null -ne $ProbeCred) {
+                    try {
+                        $s = New-CimSession -ComputerName $h -Credential $ProbeCred -SessionOption $dcomOpt -OperationTimeoutSec 3 -ErrorAction Stop
+                        try {
+                            $resolvedUser = (& $resolveSessionUser $s)
+                            break
+                        } finally {
+                            Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                        }
+                    } catch {}
+                }
+                try {
+                    $s = New-CimSession -ComputerName $h -SessionOption $dcomOpt -OperationTimeoutSec 3 -ErrorAction Stop
+                    try {
+                        $resolvedUser = (& $resolveSessionUser $s)
+                        break
+                    } finally {
+                        Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                    }
+                } catch {}
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($resolvedUser)) {
+            $res.CurrentUser = $resolvedUser
         }
     } else {
         $res.OnlineStatus = "Offline"
@@ -6284,11 +6296,7 @@ $script:TargetProbeWorkerScriptBlock = {
 }
 
 $script:ProbeDispatcherTimer.Add_Tick({
-    if ($script:ActiveProbeJobs.Count -eq 0) {
-        $script:ProbeDispatcherTimer.Stop()
-        return
-    }
-
+    # 1. Harvest completed or timed-out active probe jobs
     $anyCompleted = $false
     $now = [datetime]::Now
 
@@ -6296,10 +6304,13 @@ $script:ProbeDispatcherTimer.Add_Tick({
         $job = $script:ActiveProbeJobs[$idx]
         $elapsedSec = ($now - $job.StartedAt).TotalSeconds
         $isDone = $job.Handle.IsCompleted
-        $isTimeout = (-not $isDone) -and ($elapsedSec -gt 25.0)
+        $isTimeout = (-not $isDone) -and ($elapsedSec -gt 18.0)
 
         if ($isDone -or $isTimeout) {
             $targetItem = $job.TargetItem
+            $key = if ($targetItem -and $targetItem.ComputerName) { $targetItem.ComputerName.Trim() } else { "" }
+            if ($key) { [void]$script:PendingProbeKeys.Remove($key) }
+
             if ($isDone) {
                 try {
                     $out = $job.PowerShell.EndInvoke($job.Handle)
@@ -6307,9 +6318,17 @@ $script:ProbeDispatcherTimer.Add_Tick({
                     if ($r -and $targetItem) {
                         $targetItem.OnlineStatus = "$($r.OnlineStatus)"
                         $targetItem.IPAddress    = "$($r.IPAddress)"
-                        $targetItem.LogonUser    = "$($r.CurrentUser)"
+                        $newUser = "$($r.CurrentUser)"
+                        # Preserve last known Domain\User if host is online on VPN/firewall where WinRM/RPC ports are closed
+                        if ($newUser -eq "Unknown (Access/Firewall)" -and
+                            -not [string]::IsNullOrWhiteSpace($job.PreviousUser) -and
+                            $job.PreviousUser -notin @("Unknown", "Offline", "...", "Probing...", "Unknown (Access/Firewall)")) {
+                            $targetItem.LogonUser = $job.PreviousUser
+                        } else {
+                            $targetItem.LogonUser = $newUser
+                        }
                         if ($null -ne $targetItem.PSObject.Properties['CurrentUser']) {
-                            $targetItem.CurrentUser = "$($r.CurrentUser)"
+                            $targetItem.CurrentUser = $targetItem.LogonUser
                         }
                     }
                 } catch {
@@ -6342,16 +6361,60 @@ $script:ProbeDispatcherTimer.Add_Tick({
         }
     }
 
-    if ($anyCompleted) {
-        $dgTargets.Items.Refresh()
+    # 2. Dispatch next small batch of queued targets up to $script:MaxConcurrentProbes (non-blocking)
+    $dispatchedThisTick = 0
+    while ($script:ActiveProbeJobs.Count -lt $script:MaxConcurrentProbes -and
+           $script:PendingProbeQueue.Count -gt 0 -and
+           $dispatchedThisTick -lt $script:ProbeBatchDispatchSize) {
+        $t = $script:PendingProbeQueue.Dequeue()
+        if (-not $t -or [string]::IsNullOrWhiteSpace($t.ComputerName)) { continue }
+
+        $prevUser = if ($t.LogonUser) { "$($t.LogonUser)" } else { "" }
+        $t.OnlineStatus = "Probing..."
+
+        $domHint = $script:CurrentProbeDomainHint
+        if ($t.OUPath -and $t.OUPath -match '^([A-Za-z0-9.-]+\.[A-Za-z]{2,})/') {
+            $domHint = $matches[1]
+        }
+
+        $ps = [powershell]::Create()
+        $ps.RunspacePool = $script:ProbeRunspacePool
+        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName).AddArgument($domHint).AddArgument($script:CurrentProbeCred)
+        $handle = $ps.BeginInvoke()
+
+        [void]$script:ActiveProbeJobs.Add([PSCustomObject]@{
+            TargetItem   = $t
+            PowerShell   = $ps
+            Handle       = $handle
+            StartedAt    = [datetime]::Now
+            PreviousUser = $prevUser
+        })
+        $dispatchedThisTick++
+    }
+
+    $allFinished = ($script:ActiveProbeJobs.Count -eq 0 -and $script:PendingProbeQueue.Count -eq 0)
+
+    # 3. Throttled, interaction-safe UI refresh (never freeze scrolling, clicking, or typing)
+    if ($anyCompleted -or $allFinished) {
         Update-TargetCountSummary
-        if ($script:ActiveProbeJobs.Count -gt 0) {
-            $lblStatus.Text = "Probing targets in background... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
+        $msSinceRefresh = ($now - $script:LastProbeUiRefresh).TotalMilliseconds
+        $mouseBusy = ([System.Windows.Input.Mouse]::LeftButton -eq [System.Windows.Input.MouseButtonState]::Pressed) -or
+                     ([System.Windows.Input.Mouse]::RightButton -eq [System.Windows.Input.MouseButtonState]::Pressed)
+
+        if ($allFinished -or ($msSinceRefresh -ge 1000 -and -not $mouseBusy)) {
+            try { $dgTargets.Items.Refresh() } catch {}
+            $script:LastProbeUiRefresh = $now
+        }
+
+        if (-not $allFinished) {
+            $lblStatus.Text = "Probing targets in background ($($script:ActiveProbeJobs.Count) active)... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
         }
     }
 
-    if ($script:ActiveProbeJobs.Count -eq 0) {
+    if ($allFinished) {
         $script:ProbeDispatcherTimer.Stop()
+        $script:PendingProbeKeys.Clear()
+        try { $dgTargets.Items.Refresh() } catch {}
         Update-TargetCountSummary
         Save-ComputerInventory
         $onlineCount = @($script:TargetsCollection | Where-Object { $_.OnlineStatus -eq 'Online' }).Count
@@ -6386,69 +6449,39 @@ function Start-BackgroundTargetProbe {
     if (-not $TargetsToProbe -or $TargetsToProbe.Count -eq 0) { return }
 
     if ($null -eq $script:ProbeRunspacePool -or $script:ProbeRunspacePool.RunspacePoolStateInfo.State -ne [System.Management.Automation.Runspaces.RunspacePoolState]::Opened) {
-        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool(1, 32)
+        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool(1, 12)
         $script:ProbeRunspacePool.Open()
     }
 
-    if ($script:ActiveProbeJobs.Count -eq 0) {
+    if ($script:ActiveProbeJobs.Count -eq 0 -and $script:PendingProbeQueue.Count -eq 0) {
         $script:ProbeTotalQueued    = 0
         $script:ProbeCompletedCount = 0
+        $script:PendingProbeKeys.Clear()
     }
 
-    $activeNames = @{}
-    foreach ($activeJob in $script:ActiveProbeJobs) {
-        if ($activeJob.TargetItem -and $activeJob.TargetItem.ComputerName) {
-            $activeNames[$activeJob.TargetItem.ComputerName.ToLowerInvariant()] = $true
-        }
-    }
-
-    $defaultDomHint = ""
     if ($txtAdDomain -and -not [string]::IsNullOrWhiteSpace($txtAdDomain.Text)) {
-        $defaultDomHint = $txtAdDomain.Text.Trim()
+        $script:CurrentProbeDomainHint = $txtAdDomain.Text.Trim()
     } elseif (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Domain)) {
-        $defaultDomHint = $script:AppSettings.Domain.Trim()
+        $script:CurrentProbeDomainHint = $script:AppSettings.Domain.Trim()
+    } else {
+        $script:CurrentProbeDomainHint = ""
     }
 
-    $probeCred = Get-ConfiguredProbeCredential
+    $script:CurrentProbeCred = Get-ConfiguredProbeCredential
 
     $queuedNow = 0
     foreach ($t in $TargetsToProbe) {
         if (-not $t -or [string]::IsNullOrWhiteSpace($t.ComputerName)) { continue }
-        $key = $t.ComputerName.Trim().ToLowerInvariant()
-        if ($activeNames.ContainsKey($key)) { continue }
+        $key = $t.ComputerName.Trim()
+        if (-not $script:PendingProbeKeys.Add($key)) { continue }
 
-        $t.OnlineStatus = "Probing..."
-        $t.IPAddress    = "..."
-        $t.LogonUser    = "..."
-        if ($null -ne $t.PSObject.Properties['CurrentUser']) {
-            $t.CurrentUser = "..."
-        }
-
-        $domHint = $defaultDomHint
-        if ($t.OUPath -and $t.OUPath -match '^([A-Za-z0-9.-]+\.[A-Za-z]{2,})/') {
-            $domHint = $matches[1]
-        }
-
-        $ps = [powershell]::Create()
-        $ps.RunspacePool = $script:ProbeRunspacePool
-        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName).AddArgument($domHint).AddArgument($probeCred)
-        $handle = $ps.BeginInvoke()
-
-        [void]$script:ActiveProbeJobs.Add([PSCustomObject]@{
-            TargetItem = $t
-            PowerShell = $ps
-            Handle     = $handle
-            StartedAt  = [datetime]::Now
-        })
-        $activeNames[$key] = $true
+        $script:PendingProbeQueue.Enqueue($t)
         $script:ProbeTotalQueued++
         $queuedNow++
     }
 
     if ($queuedNow -gt 0) {
-        $dgTargets.Items.Refresh()
-        Update-TargetCountSummary
-        $lblStatus.Text = "Probing targets in background... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
+        $lblStatus.Text = "Queued $queuedNow target(s) for background batch probing... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
         if (-not $script:ProbeDispatcherTimer.IsEnabled) {
             $script:ProbeDispatcherTimer.Start()
         }
@@ -6480,7 +6513,8 @@ function Update-AutoProbeTimer {
         if (-not $script:AppIsClosing -and
             $null -ne $script:TargetsCollection -and
             $script:TargetsCollection.Count -gt 0 -and
-            $script:ActiveProbeJobs.Count -eq 0) {
+            $script:ActiveProbeJobs.Count -eq 0 -and
+            $script:PendingProbeQueue.Count -eq 0) {
             Start-BackgroundTargetProbe -TargetsToProbe @($script:TargetsCollection)
         }
     })
@@ -6549,64 +6583,72 @@ function Load-ComputerInventory {
         }
         if ($loaded.Count -eq 0) { return }
 
-        $script:TargetsCollection.Clear()
+        $seenHosts = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
         $repairedCorruptedRow = $false
         $repairedSplitNames = [System.Collections.Generic.List[string]]::new()
 
-        # Pass 1: Load all valid single-hostname computer items (preserving full AD OUPath & ADLastLogon)
-        foreach ($item in $loaded) {
-            if (-not $item -or [string]::IsNullOrWhiteSpace("$($item.ComputerName)")) { continue }
-            $cName = "$($item.ComputerName)".Trim()
-            if ($cName -match '\s+') {
-                $repairedCorruptedRow = $true
-                foreach ($part in ($cName -split '\s+')) {
-                    $cleanPart = $part.Trim()
-                    if (-not [string]::IsNullOrWhiteSpace($cleanPart)) {
-                        $repairedSplitNames.Add($cleanPart)
+        $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($dgTargets.ItemsSource)
+        $defer = if ($null -ne $view) { $view.DeferRefresh() } else { $null }
+        try {
+            $script:TargetsCollection.Clear()
+
+            # Pass 1: Load all valid single-hostname computer items in O(1) per row
+            foreach ($item in $loaded) {
+                if (-not $item -or [string]::IsNullOrWhiteSpace("$($item.ComputerName)")) { continue }
+                $cName = "$($item.ComputerName)".Trim()
+                if ($cName -match '\s+') {
+                    $repairedCorruptedRow = $true
+                    foreach ($part in ($cName -split '\s+')) {
+                        $cleanPart = $part.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($cleanPart)) {
+                            $repairedSplitNames.Add($cleanPart)
+                        }
+                    }
+                    continue
+                }
+                if (-not $seenHosts.Add($cName)) { continue }
+                $ouVal = if ($null -ne $item.PSObject.Properties['OUPath'] -and -not [string]::IsNullOrWhiteSpace("$($item.OUPath)")) { "$($item.OUPath)" } else { "Manual / Workgroup" }
+                $llVal = if ($null -ne $item.PSObject.Properties['ADLastLogon'] -and -not [string]::IsNullOrWhiteSpace("$($item.ADLastLogon)")) { "$($item.ADLastLogon)" } else { "N/A" }
+                $dnVal = if ($null -ne $item.PSObject.Properties['DistinguishedName']) { "$($item.DistinguishedName)" } else { "" }
+                $srcVal = if ($null -ne $item.PSObject.Properties['Source'] -and -not [string]::IsNullOrWhiteSpace("$($item.Source)")) { "$($item.Source)" } else { "Manual" }
+                $tObj = [PSCustomObject]@{
+                    Selected          = if ($null -ne $item.PSObject.Properties['Selected']) { [bool]$item.Selected } else { $false }
+                    ComputerName      = $cName
+                    OnlineStatus      = if ($item.OnlineStatus) { "$($item.OnlineStatus)" } else { "Unknown" }
+                    IPAddress         = if ($item.IPAddress) { "$($item.IPAddress)" } else { "" }
+                    LogonUser         = if ($item.LogonUser) { "$($item.LogonUser)" } else { "" }
+                    CurrentUser       = if ($item.LogonUser) { "$($item.LogonUser)" } else { "" }
+                    OUPath            = $ouVal
+                    ADLastLogon       = $llVal
+                    DistinguishedName = $dnVal
+                    Source            = $srcVal
+                }
+                $script:TargetsCollection.Add($tObj)
+            }
+
+            # Pass 2: If a corrupted space-combined row existed, recover any hostnames not already present
+            if ($repairedSplitNames.Count -gt 0) {
+                foreach ($splitHost in $repairedSplitNames) {
+                    if ($seenHosts.Add($splitHost)) {
+                        $script:InventoryNeedsAdResync = $true
+                        $script:TargetsCollection.Add([PSCustomObject]@{
+                            Selected          = $false
+                            ComputerName      = $splitHost
+                            OnlineStatus      = "Unknown"
+                            IPAddress         = ""
+                            LogonUser         = ""
+                            CurrentUser       = ""
+                            OUPath            = "Manual / Workgroup"
+                            ADLastLogon       = "N/A"
+                            DistinguishedName = ""
+                            Source            = "ADSync"
+                        })
                     }
                 }
-                continue
             }
-            $exists = $script:TargetsCollection | Where-Object { $_.ComputerName -ieq $cName }
-            if ($exists) { continue }
-            $ouVal = if ($null -ne $item.PSObject.Properties['OUPath'] -and -not [string]::IsNullOrWhiteSpace("$($item.OUPath)")) { "$($item.OUPath)" } else { "Manual / Workgroup" }
-            $llVal = if ($null -ne $item.PSObject.Properties['ADLastLogon'] -and -not [string]::IsNullOrWhiteSpace("$($item.ADLastLogon)")) { "$($item.ADLastLogon)" } else { "N/A" }
-            $dnVal = if ($null -ne $item.PSObject.Properties['DistinguishedName']) { "$($item.DistinguishedName)" } else { "" }
-            $srcVal = if ($null -ne $item.PSObject.Properties['Source'] -and -not [string]::IsNullOrWhiteSpace("$($item.Source)")) { "$($item.Source)" } else { "Manual" }
-            $tObj = [PSCustomObject]@{
-                Selected          = if ($null -ne $item.PSObject.Properties['Selected']) { [bool]$item.Selected } else { $false }
-                ComputerName      = $cName
-                OnlineStatus      = if ($item.OnlineStatus) { "$($item.OnlineStatus)" } else { "Unknown" }
-                IPAddress         = if ($item.IPAddress) { "$($item.IPAddress)" } else { "" }
-                LogonUser         = if ($item.LogonUser) { "$($item.LogonUser)" } else { "" }
-                CurrentUser       = if ($item.LogonUser) { "$($item.LogonUser)" } else { "" }
-                OUPath            = $ouVal
-                ADLastLogon       = $llVal
-                DistinguishedName = $dnVal
-                Source            = $srcVal
-            }
-            $script:TargetsCollection.Add($tObj)
-        }
-
-        # Pass 2: If a corrupted space-combined row existed, recover any hostnames not already present
-        if ($repairedSplitNames.Count -gt 0) {
-            foreach ($splitHost in $repairedSplitNames) {
-                $exists = $script:TargetsCollection | Where-Object { $_.ComputerName -ieq $splitHost }
-                if (-not $exists) {
-                    $script:InventoryNeedsAdResync = $true
-                    $script:TargetsCollection.Add([PSCustomObject]@{
-                        Selected          = $false
-                        ComputerName      = $splitHost
-                        OnlineStatus      = "Unknown"
-                        IPAddress         = ""
-                        LogonUser         = ""
-                        CurrentUser       = ""
-                        OUPath            = "Manual / Workgroup"
-                        ADLastLogon       = "N/A"
-                        DistinguishedName = ""
-                        Source            = "ADSync"
-                    })
-                }
+        } finally {
+            if ($null -ne $defer) {
+                try { $defer.Dispose() } catch {}
             }
         }
 
@@ -11238,20 +11280,40 @@ if ($btnStart) {
     })
 }
 
-# Load persistent inventory, AD sync config, status & UI layout state on startup and save on window close
-Load-ComputerInventory
-Load-AdSyncConfig
-if ($script:InventoryNeedsAdResync -and $script:AdSyncConfig -and $script:AdSyncConfig.Containers -and @($script:AdSyncConfig.Containers).Count -gt 0) {
-    $script:InventoryNeedsAdResync = $false
-    Invoke-AdSync -Silent
-}
-Update-AdSyncStatusBadge
-Update-AdAutoSyncTimer
-Update-AutoProbeTimer
-Load-PersistentStatusState
+# Apply lightweight UI layout state immediately before rendering; defer disk/network hydration to ContentRendered for instant startup
 Load-UiLayoutState
 Apply-MainWindowLayoutState
 Update-ActivePackageBanner
+
+$script:StartupHydrationCompleted = $false
+$window.Add_ContentRendered({
+    if ($script:StartupHydrationCompleted) { return }
+    $script:StartupHydrationCompleted = $true
+    if ($lblStatus) {
+        $lblStatus.Text = "Loading package library and computer inventory..."
+        $lblStatus.Foreground = "#38BDF8"
+    }
+    $null = $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [Action]{
+        try {
+            Load-PackageLibrary
+            Update-ActivePackageBanner
+            Load-AdSyncConfig
+            Update-AdSyncStatusBadge
+        } catch {}
+        $null = $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::ContextIdle, [Action]{
+            try {
+                Load-ComputerInventory
+                if ($script:InventoryNeedsAdResync -and $script:AdSyncConfig -and $script:AdSyncConfig.Containers -and @($script:AdSyncConfig.Containers).Count -gt 0) {
+                    $script:InventoryNeedsAdResync = $false
+                    Invoke-AdSync -Silent
+                }
+                Load-PersistentStatusState
+                Update-AdAutoSyncTimer
+                Update-AutoProbeTimer
+            } catch {}
+        })
+    })
+})
 
 $window.Add_Closing({
     $script:AppIsClosing = $true
@@ -11274,6 +11336,8 @@ $window.Add_Closed({
             $script:ActiveDeployments.Clear()
         }
         if ($script:ProbeDispatcherTimer) { $script:ProbeDispatcherTimer.Stop() }
+        if ($script:PendingProbeQueue) { $script:PendingProbeQueue.Clear() }
+        if ($script:PendingProbeKeys) { $script:PendingProbeKeys.Clear() }
         if ($script:ActiveProbeJobs) {
             foreach ($j in $script:ActiveProbeJobs) {
                 if ($j.PowerShell) { try { $j.PowerShell.Dispose() } catch {} }
