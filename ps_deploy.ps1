@@ -651,6 +651,11 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
                                     <TextBlock Text="Checked / Imported: " Foreground="#A6ADC8" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="lblTargetCount" Text="0/0" Foreground="#A6E3A1" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" ToolTip="Number of checked target computers out of total imported target computers"/>
                                     <TextBlock x:Name="lblTargetCountDetail" Text=" (0 checked of 0 imported)" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                    <Border Width="1" Height="14" Background="#45475A" Margin="10,0"/>
+                                    <TextBlock Text="🟢 Online: " Foreground="#A6E3A1" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="lblTargetOnlineCount" Text="0" Foreground="#A6E3A1" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" ToolTip="Number of target computers in inventory currently Online"/>
+                                    <TextBlock Text="   🔴 Offline: " Foreground="#F38BA8" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="lblTargetOfflineCount" Text="0" Foreground="#F38BA8" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" ToolTip="Number of target computers in inventory currently Offline"/>
                                 </StackPanel>
                                 <Button x:Name="btnClearTargetFilters" Grid.Column="1" Content="🧹 Clear Filters" Height="22" Width="Auto" Padding="8,1" FontSize="10.5" Background="#313244" Foreground="#CDD6F4" ToolTip="Clear all column header filters and sorting in Target Computers"/>
                             </Grid>
@@ -941,6 +946,8 @@ $lblAdSyncStatusBadge   = $window.FindName("lblAdSyncStatusBadge")
 $dgTargets              = $window.FindName("dgTargets")
 $lblTargetCount         = $window.FindName("lblTargetCount")
 $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
+$lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
+$lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
 $lblSettingsSummary     = $window.FindName("lblSettingsSummary")
 $btnSettings            = $window.FindName("btnSettings")
@@ -1449,8 +1456,16 @@ if ($script:ResultsCollectionView) {
 function Update-TargetCountSummary {
     $total = if ($null -ne $script:TargetsCollection) { $script:TargetsCollection.Count } else { 0 }
     $checked = if ($total -gt 0) { @($script:TargetsCollection | Where-Object { [bool]$_.Selected }).Count } else { 0 }
+    $onlineCount = if ($total -gt 0) { @($script:TargetsCollection | Where-Object { $_.OnlineStatus -eq 'Online' }).Count } else { 0 }
+    $offlineCount = if ($total -gt 0) { @($script:TargetsCollection | Where-Object { $_.OnlineStatus -eq 'Offline' }).Count } else { 0 }
     if ($lblTargetCount) {
         $lblTargetCount.Text = "$checked/$total"
+    }
+    if ($lblTargetOnlineCount) {
+        $lblTargetOnlineCount.Text = "$onlineCount"
+    }
+    if ($lblTargetOfflineCount) {
+        $lblTargetOfflineCount.Text = "$offlineCount"
     }
     if ($lblTargetCountDetail) {
         if (Test-TargetFilterActive) {
@@ -2418,22 +2433,27 @@ function Invoke-WpfDoEvents {
 Write-DiagnosticLog "PSDeploy initialized. ConfigDir=$($script:SettingsDir)" 
 
 $script:AppSettings = [PSCustomObject]@{
-    UseCurrentCred       = $true
-    Domain               = ""
-    Username             = ""
-    EncryptedPass        = ""
-    SecurePassword       = $null
-    RemoteStagingDir     = "C:\Temp\PSDeploy"
-    ConfigDirectory      = $script:SettingsDir
-    MaxConcurrentTargets = 8
+    UseCurrentCred           = $true
+    Domain                   = ""
+    Username                 = ""
+    EncryptedPass            = ""
+    SecurePassword           = $null
+    RemoteStagingDir         = "C:\Temp\PSDeploy"
+    ConfigDirectory          = $script:SettingsDir
+    MaxConcurrentTargets     = 8
+    AutoProbeInventory       = $true
+    AutoProbeIntervalMinutes = 15
 }
 
 function Update-SettingsSummaryLabel {
     $cfgPath = if ($script:SettingsDir) { $script:SettingsDir } else { "(default)" }
     $maxConc = if ($script:AppSettings.MaxConcurrentTargets) { [Math]::Min(8, [Math]::Max(1, [int]$script:AppSettings.MaxConcurrentTargets)) } else { 8 }
+    $probeOn = if ($null -ne $script:AppSettings.AutoProbeInventory) { [bool]$script:AppSettings.AutoProbeInventory } else { $true }
+    $probeMins = if ($script:AppSettings.AutoProbeIntervalMinutes) { [Math]::Max(1, [int]$script:AppSettings.AutoProbeIntervalMinutes) } else { 15 }
+    $probeStr = if ($probeOn) { "Auto-Probe: On ($($probeMins)m)" } else { "Auto-Probe: Off" }
     if ($script:AppSettings.UseCurrentCred) {
         $curUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $lblSettingsSummary.Text = "Auth: Current Logon ($curUser) | Concurrency: $maxConc | Config: $cfgPath | Remote Staging: $($script:AppSettings.RemoteStagingDir)"
+        $lblSettingsSummary.Text = "Auth: Current Logon ($curUser) | Concurrency: $maxConc | $probeStr | Config: $cfgPath | Remote Staging: $($script:AppSettings.RemoteStagingDir)"
     } else {
         $usr = if (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Domain)) {
             "$($script:AppSettings.Domain)\$($script:AppSettings.Username)"
@@ -2443,7 +2463,7 @@ function Update-SettingsSummaryLabel {
         if ([string]::IsNullOrWhiteSpace($usr)) { $usr = "(not configured)" }
         $hasPass = ($null -ne $script:AppSettings.SecurePassword -and $script:AppSettings.SecurePassword.Length -gt 0)
         $passStr = if ($hasPass) { "[Password Saved]" } else { "[No Password]" }
-        $lblSettingsSummary.Text = "Auth: $usr $passStr | Concurrency: $maxConc | Config: $cfgPath | Remote Staging: $($script:AppSettings.RemoteStagingDir)"
+        $lblSettingsSummary.Text = "Auth: $usr $passStr | Concurrency: $maxConc | $probeStr | Config: $cfgPath | Remote Staging: $($script:AppSettings.RemoteStagingDir)"
     }
 }
 
@@ -2463,6 +2483,15 @@ function Load-AppSettings {
             $parsedConc = 8
             if ([int]::TryParse("$($raw.MaxConcurrentTargets)", [ref]$parsedConc)) {
                 $script:AppSettings.MaxConcurrentTargets = [Math]::Min(8, [Math]::Max(1, $parsedConc))
+            }
+        }
+        if ($null -ne $raw.AutoProbeInventory) {
+            $script:AppSettings.AutoProbeInventory = [bool]$raw.AutoProbeInventory
+        }
+        if ($null -ne $raw.AutoProbeIntervalMinutes) {
+            $parsedProbeMins = 15
+            if ([int]::TryParse("$($raw.AutoProbeIntervalMinutes)", [ref]$parsedProbeMins)) {
+                $script:AppSettings.AutoProbeIntervalMinutes = [Math]::Min(240, [Math]::Max(1, $parsedProbeMins))
             }
         }
         if ($raw.ConfigDirectory -and $raw.ConfigDirectory -ne $script:SettingsDir) {
@@ -2500,13 +2529,15 @@ function Save-AppSettings {
             $encB64 = [System.Convert]::ToBase64String($encBytes)
         }
         $dto = [PSCustomObject]@{
-            UseCurrentCred       = [bool]$script:AppSettings.UseCurrentCred
-            Domain               = [string]$script:AppSettings.Domain
-            Username             = [string]$script:AppSettings.Username
-            EncryptedPass        = $encB64
-            RemoteStagingDir     = [string]$script:AppSettings.RemoteStagingDir
-            ConfigDirectory      = [string]$script:SettingsDir
-            MaxConcurrentTargets = [Math]::Min(8, [Math]::Max(1, [int]$script:AppSettings.MaxConcurrentTargets))
+            UseCurrentCred           = [bool]$script:AppSettings.UseCurrentCred
+            Domain                   = [string]$script:AppSettings.Domain
+            Username                 = [string]$script:AppSettings.Username
+            EncryptedPass            = $encB64
+            RemoteStagingDir         = [string]$script:AppSettings.RemoteStagingDir
+            ConfigDirectory          = [string]$script:SettingsDir
+            MaxConcurrentTargets     = [Math]::Min(8, [Math]::Max(1, [int]$script:AppSettings.MaxConcurrentTargets))
+            AutoProbeInventory       = [bool]$script:AppSettings.AutoProbeInventory
+            AutoProbeIntervalMinutes = [Math]::Min(240, [Math]::Max(1, [int]$script:AppSettings.AutoProbeIntervalMinutes))
         }
         $json = ConvertTo-Json -InputObject $dto -Depth 3
         [System.IO.File]::WriteAllText($script:SettingsFilePath, $json, [System.Text.Encoding]::UTF8)
@@ -2519,7 +2550,7 @@ function Save-AppSettings {
 [xml]$settingsDialogXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PSDeploy Settings" Height="685" Width="610"
+        Title="PSDeploy Settings" Height="765" Width="610"
         WindowStartupLocation="CenterOwner" Background="#1E1E2E" Foreground="#CDD6F4"
         FontFamily="Segoe UI" ResizeMode="NoResize">
     <Window.Resources>
@@ -2626,7 +2657,7 @@ function Save-AppSettings {
                 </Border>
 
                 <!-- Section 4: CONCURRENT DEPLOYMENT -->
-                <Border Background="#181825" CornerRadius="6" Padding="12">
+                <Border Background="#181825" CornerRadius="6" Padding="12" Margin="0,0,0,12">
                     <StackPanel>
                         <TextBlock Text="&#x26A1; CONCURRENT DEPLOYMENT (PARALLEL EXECUTION)" FontWeight="Bold" Foreground="#CBA6F7" FontSize="12" Margin="0,0,0,4"/>
                         <TextBlock Text="Maximum number of target computers to deploy to simultaneously (1 to 8 concurrent hosts):" Foreground="#A6ADC8" FontSize="11" Margin="0,0,0,8"/>
@@ -2648,6 +2679,30 @@ function Save-AppSettings {
                                 <ComboBoxItem Content="8 Hosts (Max)" Tag="8" IsSelected="True"/>
                             </ComboBox>
                             <TextBlock Grid.Column="2" Text="(Up to 8 simultaneous WinRM deployment sessions)" Foreground="#A6ADC8" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 5: COMPUTER INVENTORY AUTO-PROBING -->
+                <Border Background="#181825" CornerRadius="6" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="&#x1F50D; COMPUTER INVENTORY AUTO-PROBING" FontWeight="Bold" Foreground="#94E2D5" FontSize="12" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="chkDlgAutoProbe" Content="Automatically probe Computer Inventory status (Online/Offline, IP, Logon User)" IsChecked="True" FontWeight="SemiBold" Margin="0,2,0,8" ToolTip="When enabled, PSDeploy automatically probes inventory computers on startup and periodically in the background"/>
+                        <Grid x:Name="pnlDlgAutoProbeInterval">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Auto-Probe Interval:" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="cmbDlgAutoProbeInterval" Grid.Column="1" Height="28" Background="#313244" Foreground="#11111B" BorderBrush="#45475A" VerticalContentAlignment="Center" Padding="6,2" ToolTip="How often to automatically refresh Online/Offline status and Current Logon User in the background">
+                                <ComboBoxItem Content="Every 5 Minutes" Tag="5"/>
+                                <ComboBoxItem Content="Every 10 Minutes" Tag="10"/>
+                                <ComboBoxItem Content="Every 15 Minutes (Default)" Tag="15" IsSelected="True"/>
+                                <ComboBoxItem Content="Every 30 Minutes" Tag="30"/>
+                                <ComboBoxItem Content="Every 60 Minutes (1 Hour)" Tag="60"/>
+                            </ComboBox>
+                            <TextBlock Grid.Column="2" Text="(Background non-blocking refresh)" Foreground="#A6ADC8" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -2685,6 +2740,9 @@ function Show-SettingsDialog {
     $txtDlgRemoteDir      = $dlg.FindName("txtDlgRemoteDir")
     $btnBrowseRemoteDir   = $dlg.FindName("btnBrowseRemoteDir")
     $cmbDlgMaxConcurrency = $dlg.FindName("cmbDlgMaxConcurrency")
+    $chkDlgAutoProbe         = $dlg.FindName("chkDlgAutoProbe")
+    $pnlDlgAutoProbeInterval = $dlg.FindName("pnlDlgAutoProbeInterval")
+    $cmbDlgAutoProbeInterval = $dlg.FindName("cmbDlgAutoProbeInterval")
     $btnSaveSettings      = $dlg.FindName("btnSaveSettings")
     $btnCancelSettings    = $dlg.FindName("btnCancelSettings")
 
@@ -2696,6 +2754,33 @@ function Show-SettingsDialog {
     $curConc = if ($script:AppSettings.MaxConcurrentTargets) { [Math]::Min(8, [Math]::Max(1, [int]$script:AppSettings.MaxConcurrentTargets)) } else { 8 }
     if ($cmbDlgMaxConcurrency) {
         $cmbDlgMaxConcurrency.SelectedIndex = ($curConc - 1)
+    }
+    if ($chkDlgAutoProbe) {
+        $chkDlgAutoProbe.IsChecked = if ($null -ne $script:AppSettings.AutoProbeInventory) { [bool]$script:AppSettings.AutoProbeInventory } else { $true }
+    }
+    $curProbeMins = if ($script:AppSettings.AutoProbeIntervalMinutes) { [int]$script:AppSettings.AutoProbeIntervalMinutes } else { 15 }
+    if ($cmbDlgAutoProbeInterval) {
+        $matchedIdx = 2
+        for ($i = 0; $i -lt $cmbDlgAutoProbeInterval.Items.Count; $i++) {
+            $itemTag = "$($cmbDlgAutoProbeInterval.Items[$i].Tag)"
+            if ($itemTag -eq "$curProbeMins") {
+                $matchedIdx = $i
+                break
+            }
+        }
+        $cmbDlgAutoProbeInterval.SelectedIndex = $matchedIdx
+    }
+    $syncAutoProbeUI = {
+        $probeOn = if ($chkDlgAutoProbe) { [bool]$chkDlgAutoProbe.IsChecked } else { $true }
+        if ($pnlDlgAutoProbeInterval) {
+            $pnlDlgAutoProbeInterval.IsEnabled = $probeOn
+            $pnlDlgAutoProbeInterval.Opacity   = if ($probeOn) { 1.0 } else { 0.45 }
+        }
+    }
+    if ($chkDlgAutoProbe) {
+        $chkDlgAutoProbe.Add_Checked($syncAutoProbeUI)
+        $chkDlgAutoProbe.Add_Unchecked($syncAutoProbeUI)
+        & $syncAutoProbeUI
     }
 
     $btnBrowseConfigDir.Add_Click({
@@ -2847,12 +2932,28 @@ function Show-SettingsDialog {
         if ($cmbDlgMaxConcurrency -and $cmbDlgMaxConcurrency.SelectedIndex -ge 0) {
             $script:AppSettings.MaxConcurrentTargets = [Math]::Min(8, [Math]::Max(1, ($cmbDlgMaxConcurrency.SelectedIndex + 1)))
         }
+        $wasAutoProbe = [bool]$script:AppSettings.AutoProbeInventory
+        if ($chkDlgAutoProbe) {
+            $script:AppSettings.AutoProbeInventory = [bool]$chkDlgAutoProbe.IsChecked
+        }
+        if ($cmbDlgAutoProbeInterval -and $cmbDlgAutoProbeInterval.SelectedItem -and $cmbDlgAutoProbeInterval.SelectedItem.Tag) {
+            $parsedMins = 15
+            if ([int]::TryParse("$($cmbDlgAutoProbeInterval.SelectedItem.Tag)", [ref]$parsedMins)) {
+                $script:AppSettings.AutoProbeIntervalMinutes = [Math]::Min(240, [Math]::Max(1, $parsedMins))
+            }
+        }
 
         if ($txtDlgPassword.SecurePassword.Length -gt 0) {
             $script:AppSettings.SecurePassword = $txtDlgPassword.SecurePassword.Copy()
         }
 
         Save-AppSettings
+        if (Get-Command Update-AutoProbeTimer -ErrorAction SilentlyContinue) {
+            Update-AutoProbeTimer
+        }
+        if ((-not $wasAutoProbe) -and [bool]$script:AppSettings.AutoProbeInventory -and $script:TargetsCollection.Count -gt 0 -and $script:ActiveProbeJobs.Count -eq 0) {
+            Start-BackgroundTargetProbe -TargetsToProbe @($script:TargetsCollection)
+        }
         $dlg.DialogResult = $true
         $dlg.Close()
     })
@@ -5901,7 +6002,11 @@ $script:ProbeDispatcherTimer = New-Object System.Windows.Threading.DispatcherTim
 $script:ProbeDispatcherTimer.Interval = [TimeSpan]::FromMilliseconds(180)
 
 $script:TargetProbeWorkerScriptBlock = {
-    param([string]$CompName, [string]$DomainHint = "")
+    param(
+        [string]$CompName,
+        [string]$DomainHint = "",
+        [System.Management.Automation.PSCredential]$ProbeCred = $null
+    )
     $res = @{
         ComputerName = $CompName
         OnlineStatus = "Offline"
@@ -6073,25 +6178,92 @@ $script:TargetProbeWorkerScriptBlock = {
     if ($isOnline) {
         $res.OnlineStatus = "Online"
         $res.CurrentUser  = "Unknown (Access/Firewall)"
-        # Query CurrentUser in a bounded sub-pipeline (max 1800ms) so DCOM hangs never mark Online hosts as Offline
+        # Query CurrentUser in a bounded sub-pipeline (max 4500ms) using configured credentials + WSMan/DCOM + explorer.exe RDP fallback
         $cimPs = [powershell]::Create()
         try {
             [void]$cimPs.AddScript({
-                param([string]$TargetHost)
-                $cimOpt = New-CimSessionOption -Protocol Dcom
-                $cimSess = New-CimSession -ComputerName $TargetHost -SessionOption $cimOpt -OperationTimeoutSec 2 -ErrorAction Stop
-                try {
-                    $cs = Get-CimInstance -CimSession $cimSess -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 2 -ErrorAction Stop
+                param(
+                    [string]$TargetHost,
+                    [string]$FallbackHost,
+                    [System.Management.Automation.PSCredential]$Cred
+                )
+                $resolveSessionUser = {
+                    param($CimSession)
+                    $cs = Get-CimInstance -CimSession $CimSession -ClassName Win32_ComputerSystem -Property UserName -OperationTimeoutSec 3 -ErrorAction Stop
                     if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
                         return [string]$cs.UserName
                     }
-                    return "None (Console Idle)"
-                } finally {
-                    Remove-CimSession -CimSession $cimSess -ErrorAction SilentlyContinue
+                    # Fallback for RDP / terminal sessions where Win32_ComputerSystem.UserName is empty
+                    try {
+                        $procs = @(Get-CimInstance -CimSession $CimSession -ClassName Win32_Process -Filter "Name='explorer.exe'" -OperationTimeoutSec 3 -ErrorAction SilentlyContinue)
+                        foreach ($p in $procs) {
+                            $ownerRes = Invoke-CimMethod -CimSession $CimSession -InputObject $p -MethodName GetOwner -OperationTimeoutSec 3 -ErrorAction SilentlyContinue
+                            if ($ownerRes -and -not [string]::IsNullOrWhiteSpace($ownerRes.User)) {
+                                if (-not [string]::IsNullOrWhiteSpace($ownerRes.Domain)) {
+                                    return "$($ownerRes.Domain)\$($ownerRes.User)"
+                                }
+                                return [string]$ownerRes.User
+                            }
+                        }
+                    } catch {}
+                    return "None (No User Logged On)"
                 }
-            }).AddArgument($resolvedTarget)
+
+                $hostCandidates = New-Object System.Collections.Generic.List[string]
+                if (-not [string]::IsNullOrWhiteSpace($TargetHost)) { [void]$hostCandidates.Add($TargetHost) }
+                if (-not [string]::IsNullOrWhiteSpace($FallbackHost) -and -not $hostCandidates.Contains($FallbackHost)) {
+                    [void]$hostCandidates.Add($FallbackHost)
+                }
+
+                foreach ($h in $hostCandidates) {
+                    if ($null -ne $Cred) {
+                        # 1. Try WSMan with configured credentials
+                        try {
+                            $s = New-CimSession -ComputerName $h -Credential $Cred -OperationTimeoutSec 3 -ErrorAction Stop
+                            try {
+                                return (& $resolveSessionUser $s)
+                            } finally {
+                                Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                            }
+                        } catch {}
+
+                        # 2. Try DCOM with configured credentials
+                        try {
+                            $dcomOpt = New-CimSessionOption -Protocol Dcom
+                            $s = New-CimSession -ComputerName $h -Credential $Cred -SessionOption $dcomOpt -OperationTimeoutSec 3 -ErrorAction Stop
+                            try {
+                                return (& $resolveSessionUser $s)
+                            } finally {
+                                Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                            }
+                        } catch {}
+                    }
+
+                    # 3. Try WSMan with current Windows identity
+                    try {
+                        $s = New-CimSession -ComputerName $h -OperationTimeoutSec 2 -ErrorAction Stop
+                        try {
+                            return (& $resolveSessionUser $s)
+                        } finally {
+                            Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                        }
+                    } catch {}
+
+                    # 4. Try DCOM with current Windows identity
+                    try {
+                        $dcomOpt = New-CimSessionOption -Protocol Dcom
+                        $s = New-CimSession -ComputerName $h -SessionOption $dcomOpt -OperationTimeoutSec 2 -ErrorAction Stop
+                        try {
+                            return (& $resolveSessionUser $s)
+                        } finally {
+                            Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue
+                        }
+                    } catch {}
+                }
+                return "Unknown (Access/Firewall)"
+            }).AddArgument($resolvedTarget).AddArgument($probeHost).AddArgument($ProbeCred)
             $cimAsync = $cimPs.BeginInvoke()
-            if ($cimAsync.AsyncWaitHandle.WaitOne(1800, $false)) {
+            if ($cimAsync.AsyncWaitHandle.WaitOne(4500, $false)) {
                 $cimOut = @($cimPs.EndInvoke($cimAsync))
                 if ($cimOut.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$cimOut[0])) {
                     $res.CurrentUser = [string]$cimOut[0]
@@ -6172,6 +6344,7 @@ $script:ProbeDispatcherTimer.Add_Tick({
 
     if ($anyCompleted) {
         $dgTargets.Items.Refresh()
+        Update-TargetCountSummary
         if ($script:ActiveProbeJobs.Count -gt 0) {
             $lblStatus.Text = "Probing targets in background... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
         }
@@ -6179,11 +6352,30 @@ $script:ProbeDispatcherTimer.Add_Tick({
 
     if ($script:ActiveProbeJobs.Count -eq 0) {
         $script:ProbeDispatcherTimer.Stop()
+        Update-TargetCountSummary
+        Save-ComputerInventory
         $onlineCount = @($script:TargetsCollection | Where-Object { $_.OnlineStatus -eq 'Online' }).Count
-        $lblStatus.Text = "Target status probe complete: $onlineCount / $($script:TargetsCollection.Count) computer(s) Online."
-        Write-DiagnosticLog "Target status probe complete: $onlineCount / $($script:TargetsCollection.Count) computer(s) Online."
+        $offlineCount = @($script:TargetsCollection | Where-Object { $_.OnlineStatus -eq 'Offline' }).Count
+        $lblStatus.Text = "Target status probe complete: $onlineCount Online, $offlineCount Offline (of $($script:TargetsCollection.Count) total)."
+        Write-DiagnosticLog "Target status probe complete: $onlineCount Online, $offlineCount Offline (of $($script:TargetsCollection.Count) total)."
     }
 })
+
+function Get-ConfiguredProbeCredential {
+    try {
+        if ($null -ne $script:AppSettings -and
+            -not [string]::IsNullOrWhiteSpace($script:AppSettings.Username) -and
+            $null -ne $script:AppSettings.SecurePassword -and
+            $script:AppSettings.SecurePassword.Length -gt 0) {
+            $usr = $script:AppSettings.Username.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Domain) -and $usr -notmatch '\\' -and $usr -notmatch '@') {
+                $usr = "$($script:AppSettings.Domain.Trim())\$usr"
+            }
+            return (New-Object System.Management.Automation.PSCredential($usr, $script:AppSettings.SecurePassword))
+        }
+    } catch {}
+    return $null
+}
 
 function Start-BackgroundTargetProbe {
     param([Parameter(Mandatory=$false)][object[]]$TargetsToProbe)
@@ -6217,6 +6409,8 @@ function Start-BackgroundTargetProbe {
         $defaultDomHint = $script:AppSettings.Domain.Trim()
     }
 
+    $probeCred = Get-ConfiguredProbeCredential
+
     $queuedNow = 0
     foreach ($t in $TargetsToProbe) {
         if (-not $t -or [string]::IsNullOrWhiteSpace($t.ComputerName)) { continue }
@@ -6237,7 +6431,7 @@ function Start-BackgroundTargetProbe {
 
         $ps = [powershell]::Create()
         $ps.RunspacePool = $script:ProbeRunspacePool
-        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName).AddArgument($domHint)
+        [void]$ps.AddScript($script:TargetProbeWorkerScriptBlock).AddArgument($t.ComputerName).AddArgument($domHint).AddArgument($probeCred)
         $handle = $ps.BeginInvoke()
 
         [void]$script:ActiveProbeJobs.Add([PSCustomObject]@{
@@ -6253,11 +6447,44 @@ function Start-BackgroundTargetProbe {
 
     if ($queuedNow -gt 0) {
         $dgTargets.Items.Refresh()
+        Update-TargetCountSummary
         $lblStatus.Text = "Probing targets in background... ($script:ProbeCompletedCount / $script:ProbeTotalQueued completed)"
         if (-not $script:ProbeDispatcherTimer.IsEnabled) {
             $script:ProbeDispatcherTimer.Start()
         }
     }
+}
+
+$script:AutoProbeTimer = $null
+
+function Update-AutoProbeTimer {
+    if ($null -ne $script:AutoProbeTimer) {
+        $script:AutoProbeTimer.Stop()
+        $script:AutoProbeTimer = $null
+    }
+    $probeOn = if ($null -ne $script:AppSettings -and $null -ne $script:AppSettings.AutoProbeInventory) {
+        [bool]$script:AppSettings.AutoProbeInventory
+    } else {
+        $true
+    }
+    if (-not $probeOn) { return }
+
+    $mins = if ($null -ne $script:AppSettings -and $script:AppSettings.AutoProbeIntervalMinutes) {
+        [Math]::Min(240, [Math]::Max(1, [int]$script:AppSettings.AutoProbeIntervalMinutes))
+    } else {
+        15
+    }
+    $script:AutoProbeTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:AutoProbeTimer.Interval = [TimeSpan]::FromMinutes($mins)
+    $script:AutoProbeTimer.Add_Tick({
+        if (-not $script:AppIsClosing -and
+            $null -ne $script:TargetsCollection -and
+            $script:TargetsCollection.Count -gt 0 -and
+            $script:ActiveProbeJobs.Count -eq 0) {
+            Start-BackgroundTargetProbe -TargetsToProbe @($script:TargetsCollection)
+        }
+    })
+    $script:AutoProbeTimer.Start()
 }
 
 function Update-TargetLiveStatus {
@@ -6388,7 +6615,12 @@ function Load-ComputerInventory {
         }
 
         Update-TargetCountSummary
-        if ($script:TargetsCollection.Count -gt 0) {
+        $autoProbeOnStartup = if ($null -ne $script:AppSettings -and $null -ne $script:AppSettings.AutoProbeInventory) {
+            [bool]$script:AppSettings.AutoProbeInventory
+        } else {
+            $true
+        }
+        if ($script:TargetsCollection.Count -gt 0 -and $autoProbeOnStartup) {
             Start-BackgroundTargetProbe -TargetsToProbe @($script:TargetsCollection)
         }
     } catch {
@@ -11015,6 +11247,7 @@ if ($script:InventoryNeedsAdResync -and $script:AdSyncConfig -and $script:AdSync
 }
 Update-AdSyncStatusBadge
 Update-AdAutoSyncTimer
+Update-AutoProbeTimer
 Load-PersistentStatusState
 Load-UiLayoutState
 Apply-MainWindowLayoutState
@@ -11031,6 +11264,7 @@ $window.Add_Closing({
 $window.Add_Closed({
     try {
         if ($script:AdAutoSyncTimer) { $script:AdAutoSyncTimer.Stop() }
+        if ($script:AutoProbeTimer) { $script:AutoProbeTimer.Stop() }
         if ($script:DeployMonitorTimer) { $script:DeployMonitorTimer.Stop() }
         if ($script:ActiveDeployments) {
             foreach ($b in $script:ActiveDeployments) {
