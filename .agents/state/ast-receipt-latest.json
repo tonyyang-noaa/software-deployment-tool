@@ -1,37 +1,40 @@
 {
-  "schema_version": "4.3.2-win",
-  "generated_at": "2026-10-26T15:50:31.6746865+00:00",
-  "file": "c:\\#Project\\software-deployment-tool\\build_exe.ps1",
-  "sha256": "78EA40AF4A658B5ECD25897AF1D1E2AB93FADB4AC37A04A73765538550B6745B",
-  "total_lines": 154,
-  "touched_ranges": [
-    "UNMODIFIED"
-  ],
-  "ast_receipt": {
-    "cmd": "Parser::ParseFile (PS7 + PS5.1 + HeaderGuard + XAML) + Get-PsAstGraph",
-    "sha256": "78EA40AF4A658B5ECD25897AF1D1E2AB93FADB4AC37A04A73765538550B6745B",
-    "exit_code": 0,
-    "error_count": 0,
-    "errors": [],
-    "verified": true,
-    "ps51_verified": true,
-    "header_clean": true,
-    "xaml_verified": true,
-    "xaml_block_count": 0,
-    "touched_ranges": [
-      "UNMODIFIED"
-    ]
-  },
-  "xaml_control_check": {
-    "xaml_named_count": 0,
-    "find_name_count": 0,
-    "unresolved_controls": []
-  },
-  "security_and_wl_audit": {
-    "invoke_expression_lines": [],
-    "gci_missing_literalpath_lines": [],
-    "has_strict_mode": true,
-    "has_sta_guard": false,
-    "has_runspace_pool": false
-  }
+    "schema_version":  "4.3.2-win",
+    "generated_at":  "2026-10-26T15:52:33.7244971+00:00",
+    "file":  "C:\\#Project\\software-deployment-tool\\ps_deploy.ps1",
+    "sha256":  "D5A4DB83C57BF748D0D59D0CBFA0C5791AC616B978D94875B258D02B02330497",
+    "total_lines":  10775,
+    "touched_ranges":  "UNMODIFIED",
+    "ast_receipt":  {
+                        "cmd":  "Parser::ParseFile (PS7 + PS5.1 + HeaderGuard + XAML) + Get-PsAstGraph",
+                        "sha256":  "D5A4DB83C57BF748D0D59D0CBFA0C5791AC616B978D94875B258D02B02330497",
+                        "exit_code":  0,
+                        "error_count":  0,
+                        "errors":  [
+
+                                   ],
+                        "verified":  true,
+                        "ps51_verified":  true,
+                        "header_clean":  true,
+                        "xaml_verified":  true,
+                        "xaml_block_count":  10
+                    },
+    "xaml_control_check":  {
+                               "xaml_named_count":  213,
+                               "find_name_count":  196,
+                               "unresolved_controls":  [
+
+                                                       ]
+                           },
+    "security_and_wl_audit":  {
+                                  "invoke_expression_lines":  [
+
+                                                              ],
+                                  "gci_missing_literalpath_lines":  [
+
+                                                                    ],
+                                  "has_strict_mode":  false,
+                                  "has_sta_guard":  true,
+                                  "has_runspace_pool":  true
+                              }
 }

@@ -301,7 +301,8 @@ function Invoke-SingleFileAstIndex {
     $unresolvedControls = New-Object System.Collections.Generic.List[string]
     if ($xamlBlockCount -gt 0) {
         foreach ($fnRef in $findNameRefs) {
-            if (-not $xamlNamedSet.Contains($fnRef) -and $rawFullText -notmatch "if\s*\(\s*\$(?:script:)?$([regex]::Escape($fnRef))\b") {
+            $guardPattern = 'if\s*\(\s*\$(?:script:)?' + [regex]::Escape($fnRef) + '\b'
+            if (-not $xamlNamedSet.Contains($fnRef) -and $rawFullText -notmatch $guardPattern) {
                 $unresolvedControls.Add($fnRef)
             }
         }

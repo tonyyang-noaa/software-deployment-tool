@@ -87,9 +87,10 @@ test-tokens.txt
 id_rsa*
 
 # Antigravity ephemeral AST/Graphify caches (Keep .agents/ rules, skills, agents, AGENTS.md, and build_exe.ps1 tracked!)
-.agents/state/ast-line-graph.json
-graphify-out/cache/
-graphify-out/graph.html
+.agents/
+graphify-out/
 
 # Backup executable from build_exe.ps1
 ps_deploy.prev.exe
+build_exe.ps1
+ps_deploy.ico
