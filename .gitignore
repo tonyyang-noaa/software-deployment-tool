@@ -89,6 +89,7 @@ id_rsa*
 # Antigravity ephemeral AST/Graphify caches (Keep .agents/ rules, skills, agents, AGENTS.md, and build_exe.ps1 tracked!)
 .agents/
 graphify-out/
+tests/
 
 # Backup executable from build_exe.ps1
 ps_deploy.prev.exe
