@@ -12,6 +12,8 @@ if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Security, System.DirectoryServices
+$global:ProgressPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
 
 # ==========================================
 # 1. MAIN WINDOW XAML
@@ -513,7 +515,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
                             <TextBox x:Name="txtSingleComp" Grid.Column="1" Height="28" Margin="0,0,6,0"
                                      ToolTip="Enter hostname, FQDN (e.g. pc01.domain.local), IP address, or comma-separated list"/>
                             <Button x:Name="btnAddTargets" Grid.Column="2" Content="&#xFF0B; Add" Background="#89B4FA" Foreground="#11111B" Width="Auto" Padding="10,2" Height="28" Margin="0,0,6,0" ToolTip="Add entered computer(s) to Computer Inventory and probe live status"/>
-                            <Button x:Name="btnBrowseAD" Grid.Column="3" Content="&#x1F504; Sync AD" Width="96" Height="28" Margin="0,0,6,0" Background="#89DCEB" Foreground="#11111B" FontWeight="Bold" ToolTip="Configure PDQ-style Active Directory Sync (select one or multiple OUs, set sync frequency, delete mode, and sync computers)"/>
+                            <Button x:Name="btnBrowseAD" Grid.Column="3" Content="&#x1F504; Sync AD" Width="96" Height="28" Margin="0,0,6,0" Background="#89DCEB" Foreground="#11111B" FontWeight="Bold" ToolTip="Configure Active Directory Sync (select one or multiple OUs, set sync frequency, delete mode, and sync computers)"/>
                             <Button x:Name="btnRefreshTargets" Grid.Column="4" Content="&#x1F504; Probe" Background="#45475A" Foreground="#CDD6F4" Width="Auto" Padding="10,2" Height="28" Margin="0,0,6,0" ToolTip="Probe / refresh Online Status, IP Address, and Logon User for all inventory computers"/>
                             <Button x:Name="btnSelectAllTargets" Grid.Column="5" Content="&#x2611; All / None" Background="#45475A" Foreground="#CDD6F4" Width="Auto" Padding="10,2" Height="28" Margin="0,0,6,0" ToolTip="Toggle Deploy selection for all visible inventory computers"/>
                             <Button x:Name="btnRemoveTarget" Grid.Column="6" Content="&#x2715; Remove" Background="#45475A" Foreground="#CDD6F4" Width="Auto" Padding="10,2" Height="28" Margin="0,0,10,0" ToolTip="Remove selected row from Computer Inventory table"/>
@@ -1149,12 +1151,16 @@ $btnSettings            = $window.FindName("btnSettings")
             </ComboBox>
         </WrapPanel>
         <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="btnAddScript" Content="＋ PowerShell" Background="#89B4FA" Padding="10,5" Margin="0,0,6,4"/>
-            <Button x:Name="btnAddBatch" Content="＋ Batch / CMD" Background="#FAB387" Padding="10,5" Margin="0,0,6,4" ToolTip="Add a native Windows Batch (.bat / .cmd) script step"/>
-            <Button x:Name="btnCannedScripts" Content="📚 Canned-Scripts" Background="#F9E2AF" Padding="10,5" Margin="0,0,6,4" ToolTip="Browse pre-built Windows SysAdmin &amp; IT Troubleshooting PowerShell &amp; Batch scripts"/>
-            <Button x:Name="btnAddInstaller" Content="＋ Installer" Background="#CBA6F7" Padding="10,5" Margin="0,0,6,4"/>
-            <Button x:Name="btnAddPause" Content="⏱ Pause" Background="#94E2D5" Padding="10,5" Margin="0,0,6,4" ToolTip="Insert a timed wait/delay step between package steps"/>
-            <Button x:Name="btnClearSteps" Content="🧹 Clear Steps" Background="#F38BA8" Padding="10,5" Margin="0,0,0,4" ToolTip="Remove all steps from the current package"/>
+            <Button x:Name="btnAddInstaller" Content="📦 Install" Background="#CBA6F7" Padding="9,5" Margin="0,0,5,4" ToolTip="Add an Install step (.bat, .cmd, .msi, .exe, .msp, .msu, .ps1) with entire directory or additional files staging"/>
+            <Button x:Name="btnAddBatch" Content="⌨ Command" Background="#FAB387" Padding="9,5" Margin="0,0,5,4" ToolTip="Add a Windows Command / Batch (.bat / .cmd) step with optional companion files"/>
+            <Button x:Name="btnAddScript" Content="⚡ PowerShell" Background="#89B4FA" Padding="9,5" Margin="0,0,5,4" ToolTip="Add a PowerShell script step with optional companion files"/>
+            <Button x:Name="btnAddFileCopy" Content="📁 File Copy" Background="#74C7EC" Padding="9,5" Margin="0,0,5,4" ToolTip="Copy files or an entire folder to a target directory on the remote computer"/>
+            <Button x:Name="btnAddReboot" Content="🔄 Reboot" Background="#F5C2E7" Padding="9,5" Margin="0,0,5,4" ToolTip="Reboot or shut down the remote computer with configurable delay and message"/>
+            <Button x:Name="btnAddPause" Content="⏱ Sleep" Background="#94E2D5" Padding="9,5" Margin="0,0,5,4" ToolTip="Insert a timed Sleep / Pause delay step (seconds)"/>
+            <Button x:Name="btnAddMessage" Content="💬 Message" Background="#B4BEFE" Padding="9,5" Margin="0,0,5,4" ToolTip="Display an interactive popup message to logged-on users on the remote computer"/>
+            <Button x:Name="btnAddLogoff" Content="🚪 Logoff" Background="#EBA0AC" Padding="9,5" Margin="0,0,5,4" ToolTip="Log off active interactive user sessions on the remote computer"/>
+            <Button x:Name="btnCannedScripts" Content="📚 Canned-Scripts" Background="#F9E2AF" Padding="9,5" Margin="0,0,5,4" ToolTip="Browse pre-built Windows SysAdmin &amp; IT Troubleshooting PowerShell &amp; Batch scripts"/>
+            <Button x:Name="btnClearSteps" Content="🧹 Clear Steps" Background="#F38BA8" Padding="9,5" Margin="0,0,0,4" ToolTip="Remove all steps from the current package"/>
         </WrapPanel>
         <DataGrid x:Name="dgSteps" Grid.Row="3" AutoGenerateColumns="False" CanUserAddRows="False"
                   SelectionMode="Single" IsReadOnly="True" RowHeight="28">
@@ -1227,7 +1233,11 @@ $btnAddScript           = $script:PkgStepsModalWindow.FindName("btnAddScript")
 $btnAddBatch            = $script:PkgStepsModalWindow.FindName("btnAddBatch")
 $btnCannedScripts       = $script:PkgStepsModalWindow.FindName("btnCannedScripts")
 $btnAddInstaller        = $script:PkgStepsModalWindow.FindName("btnAddInstaller")
+$btnAddFileCopy         = $script:PkgStepsModalWindow.FindName("btnAddFileCopy")
+$btnAddReboot           = $script:PkgStepsModalWindow.FindName("btnAddReboot")
 $btnAddPause            = $script:PkgStepsModalWindow.FindName("btnAddPause")
+$btnAddMessage          = $script:PkgStepsModalWindow.FindName("btnAddMessage")
+$btnAddLogoff           = $script:PkgStepsModalWindow.FindName("btnAddLogoff")
 $btnClearSteps          = $script:PkgStepsModalWindow.FindName("btnClearSteps")
 $dgSteps                = $script:PkgStepsModalWindow.FindName("dgSteps")
 $btnCloseStepsModal     = $script:PkgStepsModalWindow.FindName("btnCloseStepsModal")
@@ -2970,22 +2980,163 @@ Load-AppSettings
 # ==========================================
 # 3. STEP MODEL & STEP EDITOR DIALOG
 # ==========================================
+function Format-ByteSize {
+    param([long]$Bytes)
+    if ($Bytes -ge 1GB) { return ("{0:N1} GB" -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1MB) { return ("{0:N1} MB" -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ("{0:N1} KB" -f ($Bytes / 1KB)) }
+    return "$Bytes B"
+}
+
+function Split-AdditionalFilesList {
+    param([string]$RawText)
+    if ([string]::IsNullOrWhiteSpace($RawText)) { return @() }
+    return @($RawText -split "[;`r`n]+" | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Normalize-StepType {
+    param([string]$Type)
+    switch -Regex ($Type) {
+        '^(Install|Installer)$' { return 'Installer' }
+        '^(Command|Batch|CMD)$' { return 'Batch' }
+        '^PowerShell$'          { return 'PowerShell' }
+        '^(FileCopy|File Copy)$'{ return 'FileCopy' }
+        '^Reboot$'              { return 'Reboot' }
+        '^(Sleep|Pause)$'       { return 'Pause' }
+        '^Message$'             { return 'Message' }
+        '^Logoff$'              { return 'Logoff' }
+        default                 { return 'PowerShell' }
+    }
+}
+
+function Get-DefaultSuccessCodes {
+    param([string]$Type)
+    $norm = Normalize-StepType $Type
+    if ($norm -eq 'Installer') {
+        return "0,1641,3010,2359302"
+    }
+    return "0"
+}
+
+function Build-StepCommandLinePreview {
+    param(
+        [string]$Type,
+        [string]$PayloadPath = "",
+        [string]$Parameters = "",
+        [bool]$SilentInstall = $true,
+        [int]$PauseSeconds = 30,
+        [bool]$ShutdownOnly = $false,
+        [string]$MessageText = "",
+        [string]$TargetPath = ""
+    )
+    $norm = Normalize-StepType $Type
+    $pTrim = if ($Parameters) { $Parameters.Trim() } else { "" }
+    switch ($norm) {
+        'Installer' {
+            $fName = if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) { [System.IO.Path]::GetFileName($PayloadPath.Trim()) } else { "<InstallFile>" }
+            $ext = if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) { [System.IO.Path]::GetExtension($PayloadPath.Trim()).ToLower() } else { "" }
+            switch ($ext) {
+                ".bat" { return "cmd.exe /s /c `"`"$fName`" $pTrim`"" }
+                ".cmd" { return "cmd.exe /s /c `"`"$fName`" $pTrim`"" }
+                ".msi" {
+                    $flags = if ($SilentInstall -and $pTrim -notmatch '(/q|/passive)') { "/qn /norestart $pTrim".Trim() } else { $pTrim }
+                    return "msiexec.exe /i `"$fName`" $flags".Trim()
+                }
+                ".msp" {
+                    $flags = if ($SilentInstall -and $pTrim -notmatch '(/q|/passive)') { "/qn /norestart $pTrim".Trim() } else { $pTrim }
+                    return "msiexec.exe /p `"$fName`" $flags".Trim()
+                }
+                ".msu" {
+                    $flags = if ($SilentInstall -and $pTrim -notmatch '/quiet') { "/quiet /norestart $pTrim".Trim() } else { $pTrim }
+                    return "wusa.exe `"$fName`" $flags".Trim()
+                }
+                ".ps1" {
+                    return "%SystemRoot%\System32\WindowsPowerShell\v1.0\PowerShell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File `"$fName`" $pTrim".Trim()
+                }
+                default {
+                    return "`"$fName`" $pTrim".Trim()
+                }
+            }
+        }
+        'Batch' {
+            return "cmd.exe /s /c `"`".\Deploy_Step.bat`" $pTrim`""
+        }
+        'PowerShell' {
+            return "%SystemRoot%\System32\WindowsPowerShell\v1.0\PowerShell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File `".\Deploy_Step.ps1`" $pTrim".Trim()
+        }
+        'FileCopy' {
+            $src = if ($PayloadPath) { [System.IO.Path]::GetFileName($PayloadPath) } else { "<Source>" }
+            $dst = if ($TargetPath) { $TargetPath } else { "C:\Temp\PSDeploy" }
+            return "Copy-Item `"$src`" -> `"$dst`""
+        }
+        'Reboot' {
+            $flag = if ($ShutdownOnly) { "/s" } else { "/r" }
+            $sec  = if ($PauseSeconds -ge 0) { $PauseSeconds } else { 30 }
+            $msg  = if (-not [string]::IsNullOrWhiteSpace($MessageText)) { " /c `"$($MessageText.Trim())`"" } else { "" }
+            return "shutdown.exe $flag /t $sec /f$msg"
+        }
+        'Pause' {
+            $sec = if ($PauseSeconds -gt 0) { $PauseSeconds } else { 30 }
+            return "Start-Sleep -Seconds $sec"
+        }
+        'Message' {
+            $sec = if ($PauseSeconds -gt 0) { $PauseSeconds } else { 60 }
+            $msg = if (-not [string]::IsNullOrWhiteSpace($MessageText)) { ($MessageText -replace "`r?`n", " ").Trim() } else { "<Message>" }
+            return "msg.exe * /TIME:$sec `"$msg`""
+        }
+        'Logoff' {
+            return "quser / logoff.exe (All active interactive user sessions)"
+        }
+    }
+    return ""
+}
+
 function Update-StepSummary {
     param($Step)
-    if ($Step.Type -eq 'Pause') {
-        $Step.Summary = "Pause for $($Step.PauseSeconds) second(s)"
-    } elseif ($Step.Type -eq 'Installer') {
-        $file = if ($Step.PayloadPath) { [System.IO.Path]::GetFileName($Step.PayloadPath) } else { "(no payload)" }
-        $flags = if ($Step.Parameters) { " [Args: $($Step.Parameters)]" } else { "" }
-        $inc = if ($Step.IncludeFolder) { " +Folder" } else { "" }
-        $Step.Summary = "Payload: $file$inc$flags"
-    } else {
-        $first = ($Step.Script -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
-        $summaryText = if ($first) { $first.Trim() } else { "(empty script)" }
-        if (-not [string]::IsNullOrWhiteSpace($Step.Parameters)) {
-            $summaryText = "[Args: $($Step.Parameters)] $summaryText"
+    if (-not $Step) { return }
+    $norm = Normalize-StepType $Step.Type
+    $extraFiles = @(if ($Step.PSObject.Properties['AdditionalFiles']) { Split-AdditionalFilesList $Step.AdditionalFiles } else { @() })
+    $extraBadge = if ($extraFiles.Count -gt 0) { " [+$($extraFiles.Count) file(s)]" } else { "" }
+
+    switch ($norm) {
+        'Pause' {
+            $Step.Summary = "Sleep for $($Step.PauseSeconds) second(s)"
         }
-        $Step.Summary = $summaryText
+        'Installer' {
+            $file = if ($Step.PayloadPath) { [System.IO.Path]::GetFileName($Step.PayloadPath) } else { "(no install file)" }
+            $flags = if ($Step.Parameters) { " [Args: $($Step.Parameters)]" } else { "" }
+            $inc = if ($Step.IncludeFolder) { " [+Entire Dir]" } else { "" }
+            $cleanBadge = if ($Step.PSObject.Properties['CleanUpTemp'] -and -not [bool]$Step.CleanUpTemp) { " [Keep Temp]" } else { "" }
+            $Step.Summary = "Install: $file$inc$extraBadge$cleanBadge$flags"
+        }
+        'FileCopy' {
+            $src = if ($Step.PayloadPath) { [System.IO.Path]::GetFileName($Step.PayloadPath) } else { "(files)" }
+            $dst = if ($Step.PSObject.Properties['TargetPath'] -and $Step.TargetPath) { $Step.TargetPath } else { "C:\Temp\PSDeploy" }
+            $inc = if ($Step.IncludeFolder) { " [+Dir]" } else { "" }
+            $Step.Summary = "Copy: $src$inc$extraBadge -> $dst"
+        }
+        'Reboot' {
+            $isShut = ($Step.PSObject.Properties['ShutdownOnly'] -and [bool]$Step.ShutdownOnly)
+            $act = if ($isShut) { "Shutdown Only" } else { "Reboot" }
+            $msg = if (-not [string]::IsNullOrWhiteSpace($Step.Script)) { " ($($Step.Script.Trim()))" } else { "" }
+            $Step.Summary = "$act in $($Step.PauseSeconds)s$msg"
+        }
+        'Message' {
+            $first = ($Step.Script -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+            $msgPreview = if ($first) { $first.Trim() } else { "(empty message)" }
+            $Step.Summary = "Message ($($Step.PauseSeconds)s): $msgPreview"
+        }
+        'Logoff' {
+            $Step.Summary = "Log off interactive user session(s) on target"
+        }
+        default {
+            $first = ($Step.Script -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+            $summaryText = if ($first) { $first.Trim() } else { "(empty script)" }
+            if (-not [string]::IsNullOrWhiteSpace($Step.Parameters)) {
+                $summaryText = "[Args: $($Step.Parameters)] $summaryText"
+            }
+            $Step.Summary = "$summaryText$extraBadge"
+        }
     }
 }
 
@@ -2998,19 +3149,35 @@ function New-StepObject {
         [string]$PayloadPath = "",
         [bool]$IncludeFolder = $false,
         [bool]$SilentInstall = $true,
-        [int]$PauseSeconds = 0
+        [int]$PauseSeconds = 0,
+        [string]$AdditionalFiles = "",
+        [string]$SuccessCodes = "",
+        [string]$CustomCommandLine = "",
+        [string]$TargetPath = "",
+        [bool]$OverwriteFiles = $true,
+        [bool]$ShutdownOnly = $false,
+        [bool]$CleanUpTemp = $true
     )
+    $normType = Normalize-StepType $Type
+    $resolvedCodes = if (-not [string]::IsNullOrWhiteSpace($SuccessCodes)) { $SuccessCodes.Trim() } else { Get-DefaultSuccessCodes $normType }
     $s = [PSCustomObject]@{
-        Order         = 0
-        Name          = $Name
-        Type          = $Type
-        Script        = $Script
-        Parameters    = $Parameters
-        PayloadPath   = $PayloadPath
-        IncludeFolder = $IncludeFolder
-        SilentInstall = $SilentInstall
-        PauseSeconds  = $PauseSeconds
-        Summary       = ""
+        Order             = 0
+        Name              = $Name
+        Type              = $normType
+        Script            = $Script
+        Parameters        = $Parameters
+        PayloadPath       = $PayloadPath
+        IncludeFolder     = $IncludeFolder
+        SilentInstall     = $SilentInstall
+        PauseSeconds      = $PauseSeconds
+        AdditionalFiles   = $AdditionalFiles
+        SuccessCodes      = $resolvedCodes
+        CustomCommandLine = $CustomCommandLine
+        TargetPath        = $TargetPath
+        OverwriteFiles    = $OverwriteFiles
+        ShutdownOnly      = $ShutdownOnly
+        CleanUpTemp       = $CleanUpTemp
+        Summary           = ""
     }
     Update-StepSummary $s
     return $s
@@ -3048,12 +3215,12 @@ function Renumber-Steps {
 [xml]$editorXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Edit Step" Height="680" Width="720"
+        Title="Edit Package Step" Height="690" Width="780"
         WindowStartupLocation="CenterOwner" Background="#1E1E2E" Foreground="#CDD6F4"
         FontFamily="Segoe UI">
     <Window.Resources>
         <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#CDD6F4"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
-        <Style TargetType="TextBox"><Setter Property="Background" Value="#313244"/><Setter Property="Foreground" Value="#F5E0DC"/><Setter Property="BorderBrush" Value="#45475A"/><Setter Property="Padding" Value="5,3"/><Setter Property="Height" Value="28"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+        <Style TargetType="TextBox"><Setter Property="Background" Value="#313244"/><Setter Property="Foreground" Value="#F5E0DC"/><Setter Property="BorderBrush" Value="#45475A"/><Setter Property="Padding" Value="6,3"/><Setter Property="Height" Value="28"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
         <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#CDD6F4"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
         <ControlTemplate x:Key="ComboBoxToggleButtonTemplate" TargetType="ToggleButton">
             <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
@@ -3091,7 +3258,7 @@ function Renumber-Steps {
                                               TextElement.Foreground="#CDD6F4" TextElement.FontWeight="SemiBold"/>
                             <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
                                    AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                                <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="200">
+                                <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="260">
                                     <Border Background="#181825" BorderBrush="#45475A" BorderThickness="1" CornerRadius="3">
                                         <ScrollViewer SnapsToDevicePixels="True">
                                             <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
@@ -3108,7 +3275,7 @@ function Renumber-Steps {
             <Setter Property="Background" Value="#181825"/>
             <Setter Property="Foreground" Value="#CDD6F4"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Padding" Value="8,5"/>
             <Style.Triggers>
                 <Trigger Property="IsHighlighted" Value="True">
                     <Setter Property="Background" Value="#45475A"/>
@@ -3121,7 +3288,7 @@ function Renumber-Steps {
             </Style.Triggers>
         </Style>
         <Style TargetType="Button">
-            <Setter Property="Height" Value="30"/>
+            <Setter Property="Height" Value="28"/>
             <Setter Property="FontSize" Value="11.5"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -3144,75 +3311,170 @@ function Renumber-Steps {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ROW 0: Step Name -->
+        <!-- ROW 0: Step Title -->
         <Grid Grid.Row="0" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <TextBlock Text="Step Name:"/>
-            <TextBox x:Name="edtName" Grid.Column="1"/>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <TextBlock Text="Step Title:" FontWeight="SemiBold"/>
+            <TextBox x:Name="edtName" Grid.Column="1" ToolTip="Descriptive title for this deployment step (e.g. File Copy and Install Office 365 x64)"/>
         </Grid>
 
-        <!-- ROW 1: Step Type & Pause Seconds -->
+        <!-- ROW 1: Step Type & Pause / Reboot / Message Seconds -->
         <Grid Grid.Row="1" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <TextBlock Text="Step Type:"/>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="250"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <TextBlock Text="Step Type:" FontWeight="SemiBold"/>
             <ComboBox x:Name="edtType" Grid.Column="1">
-                <ComboBoxItem Content="PowerShell"/>
-                <ComboBoxItem Content="Batch"/>
-                <ComboBoxItem Content="Installer"/>
-                <ComboBoxItem Content="Pause"/>
+                <ComboBoxItem Tag="Installer" Content="📦 Install (.bat / .msi / .exe / .ps1)"/>
+                <ComboBoxItem Tag="Batch" Content="⌨ Command (Batch / CMD)"/>
+                <ComboBoxItem Tag="PowerShell" Content="⚡ PowerShell Script"/>
+                <ComboBoxItem Tag="FileCopy" Content="📁 File Copy"/>
+                <ComboBoxItem Tag="Reboot" Content="🔄 Reboot / Shutdown"/>
+                <ComboBoxItem Tag="Pause" Content="⏱ Sleep (Pause / Delay)"/>
+                <ComboBoxItem Tag="Message" Content="💬 Message (User Popup)"/>
+                <ComboBoxItem Tag="Logoff" Content="🚪 Logoff User Session(s)"/>
             </ComboBox>
             <StackPanel x:Name="pnlPause" Grid.Column="2" Orientation="Horizontal" Margin="15,0,0,0">
-                <TextBlock Text="Pause Seconds:" Margin="0,0,6,0"/>
-                <TextBox x:Name="edtPauseSeconds" Text="60" Width="70"/>
+                <TextBlock x:Name="lblPauseSeconds" Text="Seconds:" Margin="0,0,6,0"/>
+                <TextBox x:Name="edtPauseSeconds" Text="30" Width="65" Margin="0,0,12,0"/>
+                <CheckBox x:Name="edtShutdownOnly" Content="Shutdown Only" Visibility="Collapsed" ToolTip="Shut down the remote computer instead of rebooting"/>
             </StackPanel>
         </Grid>
 
-        <!-- ROW 2: Installer Payload Path & Options -->
+        <!-- ROW 2: Install File / Source File & File Details -->
         <Grid x:Name="pnlInstaller" Grid.Row="2" Margin="0,0,0,8">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <Grid Grid.Row="0" Margin="0,0,0,6">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="Payload File:"/>
-                <TextBox x:Name="edtPayloadPath" Grid.Column="1" Margin="0,0,6,0" ToolTip="Select installer or payload (.msi, .exe, .msu, .msp, .bat, .cmd, .ps1)"/>
-                <Button x:Name="edtBrowsePayload" Grid.Column="2" Content="Browse..." Width="Auto" MinWidth="80" Padding="10,2" Background="#45475A" Foreground="#CDD6F4" ToolTip="Browse for software installer or payload file"/>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="105"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="lblPayloadPath" Text="Install File:" FontWeight="SemiBold"/>
+                <TextBox x:Name="edtPayloadPath" Grid.Column="1" Margin="0,0,5,0" ToolTip="Select install file (.bat, .cmd, .msi, .exe, .msp, .msu, .ps1) or source file/folder"/>
+                <Button x:Name="edtBrowsePayload" Grid.Column="2" Content="..." Width="34" Margin="0,0,4,0" Background="#45475A" Foreground="#CDD6F4" ToolTip="Browse for install or source file"/>
+                <Button x:Name="edtBrowseFolder" Grid.Column="3" Content="📁" Width="34" Margin="0,0,4,0" Background="#45475A" Foreground="#CDD6F4" Visibility="Collapsed" ToolTip="Browse for source folder"/>
+                <Button x:Name="edtClearPayload" Grid.Column="4" Content="✕" Width="28" Background="#313244" Foreground="#89B4FA" FontWeight="Bold" ToolTip="Clear Install File path"/>
             </Grid>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="90,0,0,0">
-                <CheckBox x:Name="edtIncludeFolder" Content="Include entire parent folder" Margin="0,0,20,0" ToolTip="Copies all files in the installer folder to the remote target"/>
-                <CheckBox x:Name="edtSilentInstall" Content="Run Silently by default" IsChecked="True" ToolTip="Appends silent installation switches"/>
-            </StackPanel>
+            <Grid Grid.Row="1" Margin="0,0,0,5">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="File Details:" Foreground="#A6ADC8" FontSize="11.5"/>
+                <TextBlock x:Name="lblFileDetails" Grid.Column="1" Text="0 KB" Foreground="#A6E3A1" FontSize="11.5" FontWeight="SemiBold"/>
+            </Grid>
+            <!-- Target Path row for File Copy step -->
+            <Grid x:Name="pnlTargetPath" Grid.Row="2" Margin="0,0,0,4" Visibility="Collapsed">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Target Folder:" FontWeight="SemiBold"/>
+                <TextBox x:Name="edtTargetPath" Grid.Column="1" Text="C:\Temp\PSDeploy" ToolTip="Destination folder path on the remote computer (created automatically if missing)"/>
+            </Grid>
         </Grid>
 
-        <!-- ROW 3: Parameters -->
+        <!-- ROW 3: Parameters & Silent Note -->
         <Grid x:Name="pnlParameters" Grid.Row="3" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <TextBlock Text="Parameters:"/>
-            <TextBox x:Name="edtParameters" Grid.Column="1" ToolTip="Optional arguments or silent flags passed to the script or installer"/>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="105"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Parameters:" FontWeight="SemiBold"/>
+                <TextBox x:Name="edtParameters" Grid.Column="1" Margin="0,0,4,0" ToolTip="Optional silent install parameters or script arguments (leave empty if configured inside .bat file)"/>
+                <Button x:Name="edtClearParams" Grid.Column="2" Content="✕" Width="28" Background="#313244" Foreground="#89B4FA" FontWeight="Bold" ToolTip="Clear parameters"/>
+            </Grid>
+            <TextBlock x:Name="lblParamNote" Grid.Row="1" Margin="105,3,0,0" FontSize="11" Foreground="#F38BA8" TextWrapping="Wrap"
+                       Text="Note: Ensure that you have selected proper silent install options (or configured them in your .bat / .xml file) otherwise the deployment may appear to hang indefinitely."/>
         </Grid>
 
-        <!-- ROW 4: Script Label -->
-        <TextBlock x:Name="lblScript" Grid.Row="4" Text="Script Content:" Foreground="#A6ADC8" Margin="0,0,0,5"/>
+        <!-- ROW 4: Additional Files & Include Entire Directory -->
+        <Grid x:Name="pnlAdditionalFiles" Grid.Row="4" Margin="0,0,0,8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="105"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="lblAdditionalFiles" Text="Additional Files:" FontWeight="SemiBold"/>
+                <TextBox x:Name="edtAdditionalFiles" Grid.Column="1" Margin="0,0,5,0" ToolTip="Semicolon-separated list of additional files or folders to copy and stage into the remote step directory"/>
+                <Button x:Name="edtAddFilesBtn" Grid.Column="2" Content="+ Files..." Width="Auto" MinWidth="68" Margin="0,0,4,0" Background="#45475A" Foreground="#CDD6F4" ToolTip="Add one or more additional files to stage with this step"/>
+                <Button x:Name="edtAddFolderBtn" Grid.Column="3" Content="+ Dir..." Width="Auto" MinWidth="58" Margin="0,0,4,0" Background="#45475A" Foreground="#CDD6F4" ToolTip="Add an additional folder to stage with this step"/>
+                <Button x:Name="edtClearAddFilesBtn" Grid.Column="4" Content="✕" Width="28" Background="#313244" Foreground="#89B4FA" FontWeight="Bold" ToolTip="Clear additional files"/>
+            </Grid>
+            <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="105,0,0,0">
+                <CheckBox x:Name="edtIncludeFolder" Content="Include Entire Directory" Margin="0,0,20,0" ToolTip="Copies all files and subfolders in the install file's directory to the remote staging directory before executing"/>
+                <CheckBox x:Name="edtSilentInstall" Content="Append default silent flags (.msi / .exe)" IsChecked="True" Margin="0,0,20,0" ToolTip="Automatically appends /qn /norestart for MSI/MSP if not already present"/>
+                <CheckBox x:Name="edtCleanUpTemp" Content="Clean up temp directory after install" IsChecked="True" Margin="0,0,20,0" ToolTip="Removes the staged files from the remote temp directory after installation completes"/>
+                <CheckBox x:Name="edtOverwriteFiles" Content="Overwrite existing files" IsChecked="True" Visibility="Collapsed" ToolTip="Overwrite existing files in the destination folder"/>
+            </WrapPanel>
+        </Grid>
 
-        <!-- ROW 5: Script TextBox -->
-        <TextBox x:Name="edtScript" Grid.Row="5" Background="#313244" Foreground="#F5E0DC" BorderBrush="#45475A"
-                 FontFamily="Consolas" FontSize="12" AcceptsReturn="True" AcceptsTab="True"
-                 Height="Auto" MinHeight="220" VerticalAlignment="Stretch" VerticalContentAlignment="Top" Padding="8,6"
-                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+        <!-- ROW 5: Script / Message Header -->
+        <Grid x:Name="pnlScriptHeader" Grid.Row="5" Margin="0,0,0,4">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock x:Name="lblScript" Text="Script Content:" Foreground="#A6ADC8" FontWeight="SemiBold"/>
+            <Button x:Name="edtInsertFile" Grid.Column="1" Content="📂 Insert Script File..." Width="Auto" MinWidth="135" Height="24" Padding="8,1" Margin="0,0,4,0" Background="#45475A" Foreground="#CDD6F4" ToolTip="Load script content from a .ps1, .bat, or .cmd file"/>
+            <Button x:Name="edtClearScript" Grid.Column="2" Content="✕" Width="26" Height="24" Background="#313244" Foreground="#89B4FA" FontWeight="Bold" ToolTip="Clear editor text"/>
+        </Grid>
 
-        <!-- ROW 6: Dialog Buttons -->
-        <Grid Grid.Row="6" Margin="0,10,0,0">
+        <!-- ROW 6: Script / Message Editor OR Step Info Box -->
+        <Grid Grid.Row="6" Margin="0,0,0,8">
+            <TextBox x:Name="edtScript" Background="#313244" Foreground="#F5E0DC" BorderBrush="#45475A"
+                     FontFamily="Consolas" FontSize="12" AcceptsReturn="True" AcceptsTab="True"
+                     Height="Auto" MinHeight="140" VerticalAlignment="Stretch" VerticalContentAlignment="Top" Padding="8,6"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+            <Border x:Name="bdStepHint" Background="#181825" BorderBrush="#313244" BorderThickness="1" CornerRadius="5" Padding="12,10" Visibility="Collapsed">
+                <TextBlock x:Name="lblStepHintText" Foreground="#A6ADC8" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Top"/>
+            </Border>
+        </Grid>
+
+        <!-- ROW 7: Success Codes -->
+        <Grid x:Name="pnlSuccessCodes" Grid.Row="7" Margin="0,0,0,8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Success Codes:" FontWeight="SemiBold"/>
+                <TextBox x:Name="edtSuccessCodes" Grid.Column="1" Text="0,1641,3010,2359302" ToolTip="Comma-separated list of return codes that indicate the command was successful"/>
+            </Grid>
+            <TextBlock Grid.Row="1" Margin="105,2,0,0" FontSize="11" Foreground="#A6ADC8"
+                       Text="Comma separated list of return codes that indicate the command was successful."/>
+        </Grid>
+
+        <!-- ROW 8: Command Line Preview -->
+        <Grid x:Name="pnlCommandLine" Grid.Row="8" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="105"/>
+                <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Command Line:" FontWeight="SemiBold"/>
+            <TextBox x:Name="edtCommandLine" Grid.Column="1" Margin="0,0,8,0" Background="#181825" Foreground="#A6E3A1" FontFamily="Consolas" FontSize="11.5" IsReadOnly="True" ToolTip="Exact command line that will be executed in the remote staged directory"/>
+            <CheckBox x:Name="chkCustomCmdLine" Grid.Column="2" Content="Custom" ToolTip="Allow overriding the generated command line with a custom command"/>
+        </Grid>
+
+        <!-- ROW 9: Dialog Action Buttons -->
+        <Grid Grid.Row="9" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Button x:Name="edtInsertFile" Grid.Column="0" Content="📂 Insert Script File..." Width="Auto" MinWidth="140" Padding="12,2" Background="#45475A" Foreground="#CDD6F4" ToolTip="Read script content from file into editor"/>
-            <Button x:Name="edtOK" Grid.Column="2" Content="OK" Width="Auto" MinWidth="90" Padding="12,2" Margin="0,0,8,0" Background="#A6E3A1" Foreground="#11111B" FontWeight="Bold" ToolTip="Save step changes"/>
-            <Button x:Name="edtCancel" Grid.Column="3" Content="Cancel" Width="Auto" MinWidth="90" Padding="12,2" Background="#45475A" Foreground="#CDD6F4" ToolTip="Discard step changes"/>
+            <TextBlock x:Name="lblStepFooterNote" Grid.Column="0" Text="All staged files are copied to the remote step directory before execution." Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center"/>
+            <Button x:Name="edtOK" Grid.Column="1" Content="OK" Width="Auto" MinWidth="95" Height="30" Padding="14,2" Margin="0,0,8,0" Background="#A6E3A1" Foreground="#11111B" FontWeight="Bold" ToolTip="Save step configuration"/>
+            <Button x:Name="edtCancel" Grid.Column="2" Content="Cancel" Width="Auto" MinWidth="95" Height="30" Padding="14,2" Background="#45475A" Foreground="#CDD6F4" ToolTip="Discard changes"/>
         </Grid>
     </Grid>
 </Window>
@@ -3224,110 +3486,403 @@ function Show-StepEditor {
     $dlg = [System.Windows.Markup.XamlReader]::Load($rdr)
     $dlg.Owner = $window
 
-    $edtName          = $dlg.FindName("edtName")
-    $edtType          = $dlg.FindName("edtType")
-    $pnlPause         = $dlg.FindName("pnlPause")
-    $edtPause         = $dlg.FindName("edtPauseSeconds")
-    $pnlInstaller     = $dlg.FindName("pnlInstaller")
-    $edtPayloadPath   = $dlg.FindName("edtPayloadPath")
-    $edtBrowsePayload = $dlg.FindName("edtBrowsePayload")
-    $edtIncludeFolder = $dlg.FindName("edtIncludeFolder")
-    $edtSilentInstall = $dlg.FindName("edtSilentInstall")
-    $pnlParameters    = $dlg.FindName("pnlParameters")
-    $edtParameters    = $dlg.FindName("edtParameters")
-    $lblScript        = $dlg.FindName("lblScript")
-    $edtScript        = $dlg.FindName("edtScript")
-    $edtInsert        = $dlg.FindName("edtInsertFile")
-    $edtOK            = $dlg.FindName("edtOK")
-    $edtCancel        = $dlg.FindName("edtCancel")
+    $edtName            = $dlg.FindName("edtName")
+    $edtType            = $dlg.FindName("edtType")
+    $pnlPause           = $dlg.FindName("pnlPause")
+    $lblPauseSeconds    = $dlg.FindName("lblPauseSeconds")
+    $edtPause           = $dlg.FindName("edtPauseSeconds")
+    $edtShutdownOnly    = $dlg.FindName("edtShutdownOnly")
+    $pnlInstaller       = $dlg.FindName("pnlInstaller")
+    $lblPayloadPath     = $dlg.FindName("lblPayloadPath")
+    $edtPayloadPath     = $dlg.FindName("edtPayloadPath")
+    $edtBrowsePayload   = $dlg.FindName("edtBrowsePayload")
+    $edtBrowseFolder    = $dlg.FindName("edtBrowseFolder")
+    $edtClearPayload    = $dlg.FindName("edtClearPayload")
+    $lblFileDetails     = $dlg.FindName("lblFileDetails")
+    $pnlTargetPath      = $dlg.FindName("pnlTargetPath")
+    $edtTargetPath      = $dlg.FindName("edtTargetPath")
+    $pnlParameters      = $dlg.FindName("pnlParameters")
+    $edtParameters      = $dlg.FindName("edtParameters")
+    $edtClearParams     = $dlg.FindName("edtClearParams")
+    $lblParamNote       = $dlg.FindName("lblParamNote")
+    $pnlAdditionalFiles = $dlg.FindName("pnlAdditionalFiles")
+    $lblAdditionalFiles = $dlg.FindName("lblAdditionalFiles")
+    $edtAdditionalFiles = $dlg.FindName("edtAdditionalFiles")
+    $edtAddFilesBtn     = $dlg.FindName("edtAddFilesBtn")
+    $edtAddFolderBtn    = $dlg.FindName("edtAddFolderBtn")
+    $edtClearAddFilesBtn= $dlg.FindName("edtClearAddFilesBtn")
+    $edtIncludeFolder   = $dlg.FindName("edtIncludeFolder")
+    $edtSilentInstall   = $dlg.FindName("edtSilentInstall")
+    $edtCleanUpTemp     = $dlg.FindName("edtCleanUpTemp")
+    $edtOverwriteFiles  = $dlg.FindName("edtOverwriteFiles")
+    $pnlScriptHeader    = $dlg.FindName("pnlScriptHeader")
+    $lblScript          = $dlg.FindName("lblScript")
+    $edtInsert          = $dlg.FindName("edtInsertFile")
+    $edtClearScript     = $dlg.FindName("edtClearScript")
+    $edtScript          = $dlg.FindName("edtScript")
+    $bdStepHint         = $dlg.FindName("bdStepHint")
+    $lblStepHintText    = $dlg.FindName("lblStepHintText")
+    $pnlSuccessCodes    = $dlg.FindName("pnlSuccessCodes")
+    $edtSuccessCodes    = $dlg.FindName("edtSuccessCodes")
+    $pnlCommandLine     = $dlg.FindName("pnlCommandLine")
+    $edtCommandLine     = $dlg.FindName("edtCommandLine")
+    $chkCustomCmdLine   = $dlg.FindName("chkCustomCmdLine")
+    $lblStepFooterNote  = $dlg.FindName("lblStepFooterNote")
+    $edtOK              = $dlg.FindName("edtOK")
+    $edtCancel          = $dlg.FindName("edtCancel")
+
+    $getSelectedStepType = {
+        $selItem = $edtType.SelectedItem
+        if ($selItem -and $selItem.Tag) { return [string]$selItem.Tag }
+        return "PowerShell"
+    }
+
+    $selectStepTypeByTag = {
+        param([string]$TagToSelect)
+        $normTag = Normalize-StepType $TagToSelect
+        for ($i = 0; $i -lt $edtType.Items.Count; $i++) {
+            if ([string]$edtType.Items[$i].Tag -eq $normTag) {
+                $edtType.SelectedIndex = $i
+                return
+            }
+        }
+        $edtType.SelectedIndex = 0
+    }
+
+    $updateFileDetailsAndPreview = {
+        $curType = & $getSelectedStepType
+        $pPath = $edtPayloadPath.Text.Trim()
+        $incDir = [bool]$edtIncludeFolder.IsChecked
+        $addList = @(Split-AdditionalFilesList $edtAdditionalFiles.Text)
+
+        if (-not [string]::IsNullOrWhiteSpace($pPath) -and (Test-Path -LiteralPath $pPath)) {
+            try {
+                $item = Get-Item -LiteralPath $pPath -Force -ErrorAction Stop
+                if ($item.PSIsContainer) {
+                    $files = @(Get-ChildItem -LiteralPath $pPath -File -Recurse -Force -ErrorAction SilentlyContinue | Select-Object -First 2500)
+                    $totalBytes = 0L
+                    foreach ($f in $files) { $totalBytes += [long]$f.Length }
+                    $cntLabel = if ($files.Count -ge 2500) { "2500+ Files" } else { "$($files.Count) Files" }
+                    $lblFileDetails.Text = "Directory: $cntLabel  $(Format-ByteSize $totalBytes)"
+                    $edtIncludeFolder.Content = "Include Entire Directory  ($cntLabel  $(Format-ByteSize $totalBytes))"
+                } else {
+                    $fileSizeStr = Format-ByteSize ([long]$item.Length)
+                    if ($incDir -and $item.DirectoryName -and (Test-Path -LiteralPath $item.DirectoryName)) {
+                        $dirFiles = @(Get-ChildItem -LiteralPath $item.DirectoryName -File -Recurse -Force -ErrorAction SilentlyContinue | Select-Object -First 2500)
+                        $dirBytes = 0L
+                        foreach ($df in $dirFiles) { $dirBytes += [long]$df.Length }
+                        $cntLabel = if ($dirFiles.Count -ge 2500) { "2500+ Files" } else { "$($dirFiles.Count) Files" }
+                        $lblFileDetails.Text = "$fileSizeStr   |   Entire Directory: $cntLabel  $(Format-ByteSize $dirBytes)"
+                        $edtIncludeFolder.Content = "Include Entire Directory  $cntLabel  $(Format-ByteSize $dirBytes)"
+                    } else {
+                        $extraInfo = if ($addList.Count -gt 0) { "   |   +$($addList.Count) Additional File(s)/Folder(s)" } else { "" }
+                        $lblFileDetails.Text = "$fileSizeStr$extraInfo"
+                        $edtIncludeFolder.Content = "Include Entire Directory"
+                    }
+                }
+            } catch {
+                $lblFileDetails.Text = "0 KB"
+                $edtIncludeFolder.Content = "Include Entire Directory"
+            }
+        } else {
+            $lblFileDetails.Text = if ([string]::IsNullOrWhiteSpace($pPath)) { "0 KB" } else { "0 KB (Path resolved at deployment time)" }
+            $edtIncludeFolder.Content = "Include Entire Directory"
+        }
+
+        if (-not [bool]$chkCustomCmdLine.IsChecked) {
+            $pSec = 30
+            [void][int]::TryParse($edtPause.Text, [ref]$pSec)
+            $edtCommandLine.Text = Build-StepCommandLinePreview `
+                -Type $curType `
+                -PayloadPath $pPath `
+                -Parameters $edtParameters.Text `
+                -SilentInstall ([bool]$edtSilentInstall.IsChecked) `
+                -PauseSeconds $pSec `
+                -ShutdownOnly ([bool]$edtShutdownOnly.IsChecked) `
+                -MessageText $edtScript.Text `
+                -TargetPath $edtTargetPath.Text
+        }
+    }
 
     if ($Existing) {
         $dlg.Title = "Edit Step — $($Existing.Name)"
-        $edtName.Text = $Existing.Name
-        $typeIdx = switch ($Existing.Type) {
-            "PowerShell" { 0 }
-            "Batch"      { 1 }
-            "Installer"  { 2 }
-            "Pause"      { 3 }
-            default      { 0 }
-        }
-        $edtType.SelectedIndex = $typeIdx
-        $edtPause.Text = "$($Existing.PauseSeconds)"
-        $edtPayloadPath.Text = "$($Existing.PayloadPath)"
+        $edtName.Text = [string]$Existing.Name
+        & $selectStepTypeByTag ([string]$Existing.Type)
+        $edtPause.Text = if ($null -ne $Existing.PauseSeconds -and [int]$Existing.PauseSeconds -gt 0) { "$($Existing.PauseSeconds)" } else { "30" }
+        $edtPayloadPath.Text = [string]$Existing.PayloadPath
         $edtIncludeFolder.IsChecked = [bool]$Existing.IncludeFolder
         $edtSilentInstall.IsChecked = [bool]$Existing.SilentInstall
-        $edtParameters.Text = "$($Existing.Parameters)"
-        $edtScript.Text = "$($Existing.Script)"
-    } else {
-        $typeIdx = switch ($DefaultType) {
-            "PowerShell" { 0 }
-            "Batch"      { 1 }
-            "Installer"  { 2 }
-            "Pause"      { 3 }
-            default      { 0 }
+        $edtParameters.Text = [string]$Existing.Parameters
+        $edtScript.Text = [string]$Existing.Script
+        $edtAdditionalFiles.Text = if ($Existing.PSObject.Properties['AdditionalFiles']) { [string]$Existing.AdditionalFiles } else { "" }
+        $edtSuccessCodes.Text = if ($Existing.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.SuccessCodes)) { [string]$Existing.SuccessCodes } else { Get-DefaultSuccessCodes ([string]$Existing.Type) }
+        $edtTargetPath.Text = if ($Existing.PSObject.Properties['TargetPath'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.TargetPath)) { [string]$Existing.TargetPath } else { "C:\Temp\PSDeploy" }
+        $edtOverwriteFiles.IsChecked = if ($Existing.PSObject.Properties['OverwriteFiles']) { [bool]$Existing.OverwriteFiles } else { $true }
+        $edtShutdownOnly.IsChecked = if ($Existing.PSObject.Properties['ShutdownOnly']) { [bool]$Existing.ShutdownOnly } else { $false }
+        $edtCleanUpTemp.IsChecked = if ($Existing.PSObject.Properties['CleanUpTemp']) { [bool]$Existing.CleanUpTemp } else { $true }
+        if ($Existing.PSObject.Properties['CustomCommandLine'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.CustomCommandLine)) {
+            $chkCustomCmdLine.IsChecked = $true
+            $edtCommandLine.IsReadOnly = $false
+            $edtCommandLine.Text = [string]$Existing.CustomCommandLine
         }
-        $edtType.SelectedIndex = $typeIdx
-        $edtPause.Text = "60"
+    } else {
+        $normDef = Normalize-StepType $DefaultType
+        & $selectStepTypeByTag $normDef
+        $edtPause.Text = if ($normDef -eq 'Message') { "60" } else { "30" }
         $edtParameters.Text = ""
         $edtIncludeFolder.IsChecked = $false
         $edtSilentInstall.IsChecked = $true
+        $edtCleanUpTemp.IsChecked = $true
+        $edtOverwriteFiles.IsChecked = $true
+        $edtShutdownOnly.IsChecked = $false
+        $edtSuccessCodes.Text = Get-DefaultSuccessCodes $normDef
+        $edtTargetPath.Text = "C:\Temp\PSDeploy"
+        switch ($normDef) {
+            'Reboot'  { $edtName.Text = "Reboot Computer" }
+            'Pause'   { $edtName.Text = "Sleep 30 Seconds" }
+            'Message' { $edtName.Text = "Display User Message" }
+            'Logoff'  { $edtName.Text = "Logoff Interactive User(s)" }
+            'FileCopy'{ $edtName.Text = "Copy Files to Target" }
+        }
     }
 
     $syncType = {
-        $selType = $edtType.SelectedIndex # 0: PowerShell, 1: Batch, 2: Installer, 3: Pause
-        if ($selType -eq 3) { # Pause
-            $pnlPause.Visibility      = [System.Windows.Visibility]::Visible
-            $pnlInstaller.Visibility  = [System.Windows.Visibility]::Collapsed
-            $pnlParameters.Visibility = [System.Windows.Visibility]::Collapsed
-            $lblScript.Visibility     = [System.Windows.Visibility]::Collapsed
-            $edtScript.Visibility     = [System.Windows.Visibility]::Collapsed
-            $edtInsert.Visibility     = [System.Windows.Visibility]::Collapsed
-            $dlg.Height = 220
-        } elseif ($selType -eq 2) { # Installer
-            $pnlPause.Visibility      = [System.Windows.Visibility]::Collapsed
-            $pnlInstaller.Visibility  = [System.Windows.Visibility]::Visible
-            $pnlParameters.Visibility = [System.Windows.Visibility]::Visible
-            $lblScript.Visibility     = [System.Windows.Visibility]::Collapsed
-            $edtScript.Visibility     = [System.Windows.Visibility]::Collapsed
-            $edtInsert.Visibility     = [System.Windows.Visibility]::Collapsed
-            $dlg.Height = 310
-        } else { # PowerShell (0) or Batch (1)
-            $pnlPause.Visibility      = [System.Windows.Visibility]::Collapsed
-            $pnlInstaller.Visibility  = [System.Windows.Visibility]::Collapsed
-            $pnlParameters.Visibility = [System.Windows.Visibility]::Visible
-            $lblScript.Visibility     = [System.Windows.Visibility]::Visible
-            $edtScript.Visibility     = [System.Windows.Visibility]::Visible
-            $edtInsert.Visibility     = [System.Windows.Visibility]::Visible
-            $lblScript.Text = if ($selType -eq 1) { "Command / Batch Script Content:" } else { "PowerShell Script (executed in isolated process on target):" }
-            $dlg.Height = 680
+        $curType = & $getSelectedStepType
+        # Reset default visibility
+        $pnlPause.Visibility           = [System.Windows.Visibility]::Collapsed
+        $edtShutdownOnly.Visibility    = [System.Windows.Visibility]::Collapsed
+        $pnlInstaller.Visibility       = [System.Windows.Visibility]::Collapsed
+        $edtBrowseFolder.Visibility    = [System.Windows.Visibility]::Collapsed
+        $pnlTargetPath.Visibility      = [System.Windows.Visibility]::Collapsed
+        $pnlParameters.Visibility      = [System.Windows.Visibility]::Collapsed
+        $lblParamNote.Visibility       = [System.Windows.Visibility]::Collapsed
+        $pnlAdditionalFiles.Visibility = [System.Windows.Visibility]::Collapsed
+        $edtIncludeFolder.Visibility   = [System.Windows.Visibility]::Collapsed
+        $edtSilentInstall.Visibility   = [System.Windows.Visibility]::Collapsed
+        $edtCleanUpTemp.Visibility     = [System.Windows.Visibility]::Collapsed
+        $edtOverwriteFiles.Visibility  = [System.Windows.Visibility]::Collapsed
+        $pnlScriptHeader.Visibility    = [System.Windows.Visibility]::Collapsed
+        $edtInsert.Visibility          = [System.Windows.Visibility]::Collapsed
+        $edtScript.Visibility          = [System.Windows.Visibility]::Collapsed
+        $bdStepHint.Visibility         = [System.Windows.Visibility]::Collapsed
+        $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Collapsed
+        $pnlCommandLine.Visibility     = [System.Windows.Visibility]::Visible
+
+        switch ($curType) {
+            'Installer' {
+                $lblPayloadPath.Text           = "Install File:"
+                $pnlInstaller.Visibility       = [System.Windows.Visibility]::Visible
+                $pnlParameters.Visibility      = [System.Windows.Visibility]::Visible
+                $lblParamNote.Visibility       = [System.Windows.Visibility]::Visible
+                $lblAdditionalFiles.Text       = "Additional Files:"
+                $pnlAdditionalFiles.Visibility = [System.Windows.Visibility]::Visible
+                $edtIncludeFolder.Visibility   = [System.Windows.Visibility]::Visible
+                $edtSilentInstall.Visibility   = [System.Windows.Visibility]::Visible
+                $edtCleanUpTemp.Visibility     = [System.Windows.Visibility]::Visible
+                $bdStepHint.Visibility         = [System.Windows.Visibility]::Visible
+                $lblStepHintText.Text          = "Install Step: Select a .bat, .cmd, .msi, .exe, .msp, .msu, or .ps1 install file. Check 'Include Entire Directory' (e.g. for Office M365 setup.exe + XML + Data folder) or add 'Additional Files' to copy and stage all required files into the remote step folder before running the installer."
+                $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
+                if ($edtSuccessCodes.Text -eq "0" -or [string]::IsNullOrWhiteSpace($edtSuccessCodes.Text)) {
+                    $edtSuccessCodes.Text = "0,1641,3010,2359302"
+                }
+                $dlg.Height = 560
+            }
+            'Batch' {
+                $pnlParameters.Visibility      = [System.Windows.Visibility]::Visible
+                $lblAdditionalFiles.Text       = "Files:"
+                $pnlAdditionalFiles.Visibility = [System.Windows.Visibility]::Visible
+                $edtCleanUpTemp.Visibility     = [System.Windows.Visibility]::Visible
+                $pnlScriptHeader.Visibility    = [System.Windows.Visibility]::Visible
+                $lblScript.Text                = "Command(s) — Executed within cmd.exe in the staged directory:"
+                $edtInsert.Content             = "📂 Insert Batch File..."
+                $edtInsert.Visibility          = [System.Windows.Visibility]::Visible
+                $edtScript.Visibility          = [System.Windows.Visibility]::Visible
+                $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
+                if ($edtSuccessCodes.Text -eq "0,1641,3010,2359302" -and -not $Existing) {
+                    $edtSuccessCodes.Text = "0"
+                }
+                $dlg.Height = 690
+            }
+            'PowerShell' {
+                $pnlParameters.Visibility      = [System.Windows.Visibility]::Visible
+                $lblAdditionalFiles.Text       = "Files:"
+                $pnlAdditionalFiles.Visibility = [System.Windows.Visibility]::Visible
+                $edtCleanUpTemp.Visibility     = [System.Windows.Visibility]::Visible
+                $pnlScriptHeader.Visibility    = [System.Windows.Visibility]::Visible
+                $lblScript.Text                = "PowerShell — Executed within PowerShell.exe in the staged directory:"
+                $edtInsert.Content             = "📂 Insert PowerShell Script..."
+                $edtInsert.Visibility          = [System.Windows.Visibility]::Visible
+                $edtScript.Visibility          = [System.Windows.Visibility]::Visible
+                $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
+                if ($edtSuccessCodes.Text -eq "0,1641,3010,2359302" -and -not $Existing) {
+                    $edtSuccessCodes.Text = "0"
+                }
+                $dlg.Height = 690
+            }
+            'FileCopy' {
+                $lblPayloadPath.Text           = "Source Path:"
+                $pnlInstaller.Visibility       = [System.Windows.Visibility]::Visible
+                $edtBrowseFolder.Visibility    = [System.Windows.Visibility]::Visible
+                $pnlTargetPath.Visibility      = [System.Windows.Visibility]::Visible
+                $lblAdditionalFiles.Text       = "Additional Files:"
+                $pnlAdditionalFiles.Visibility = [System.Windows.Visibility]::Visible
+                $edtIncludeFolder.Visibility   = [System.Windows.Visibility]::Visible
+                $edtOverwriteFiles.Visibility  = [System.Windows.Visibility]::Visible
+                $bdStepHint.Visibility         = [System.Windows.Visibility]::Visible
+                $lblStepHintText.Text          = "File Copy Step: Copies the selected source file/folder (and any Additional Files) directly to the specified Target Folder on the remote computer."
+                $dlg.Height = 470
+            }
+            'Reboot' {
+                $lblPauseSeconds.Text       = "Seconds before reboot:"
+                $pnlPause.Visibility        = [System.Windows.Visibility]::Visible
+                $edtShutdownOnly.Visibility = [System.Windows.Visibility]::Visible
+                $pnlScriptHeader.Visibility = [System.Windows.Visibility]::Visible
+                $lblScript.Text             = "Message (optional broadcast notification before reboot/shutdown):"
+                $edtScript.Visibility       = [System.Windows.Visibility]::Visible
+                $dlg.Height = 420
+            }
+            'Pause' {
+                $lblPauseSeconds.Text  = "Sleep Seconds:"
+                $pnlPause.Visibility   = [System.Windows.Visibility]::Visible
+                $bdStepHint.Visibility = [System.Windows.Visibility]::Visible
+                $lblStepHintText.Text  = "Sleep Step: Pauses deployment execution on the target computer for the specified number of seconds before continuing to the next step."
+                $dlg.Height = 320
+            }
+            'Message' {
+                $lblPauseSeconds.Text       = "Display Seconds:"
+                $pnlPause.Visibility        = [System.Windows.Visibility]::Visible
+                $pnlScriptHeader.Visibility = [System.Windows.Visibility]::Visible
+                $lblScript.Text             = "Message to display on remote computer screen (via msg.exe):"
+                $edtScript.Visibility       = [System.Windows.Visibility]::Visible
+                $dlg.Height = 420
+            }
+            'Logoff' {
+                $bdStepHint.Visibility = [System.Windows.Visibility]::Visible
+                $lblStepHintText.Text  = "Logoff Step: Logs off all active or disconnected interactive user sessions on the remote computer."
+                $dlg.Height = 310
+            }
         }
+        & $updateFileDetailsAndPreview
     }
+
     $edtType.Add_SelectionChanged($syncType)
+    $edtPayloadPath.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtParameters.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtAdditionalFiles.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtTargetPath.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtPause.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtScript.Add_TextChanged($updateFileDetailsAndPreview)
+    $edtIncludeFolder.Add_Click($updateFileDetailsAndPreview)
+    $edtSilentInstall.Add_Click($updateFileDetailsAndPreview)
+    $edtShutdownOnly.Add_Click($updateFileDetailsAndPreview)
+
+    $chkCustomCmdLine.Add_Click({
+        $isCust = [bool]$chkCustomCmdLine.IsChecked
+        $edtCommandLine.IsReadOnly = (-not $isCust)
+        $edtCommandLine.Background = if ($isCust) { [System.Windows.Media.BrushConverter]::new().ConvertFromString("#313244") } else { [System.Windows.Media.BrushConverter]::new().ConvertFromString("#181825") }
+        if (-not $isCust) {
+            & $updateFileDetailsAndPreview
+        }
+    })
+
     & $syncType
 
     $edtBrowsePayload.Add_Click({
+        $curType = & $getSelectedStepType
         $ofd = New-Object System.Windows.Forms.OpenFileDialog
-        $ofd.Filter = "Software Payloads (*.msi;*.exe;*.msu;*.msp;*.bat;*.cmd;*.ps1)|*.msi;*.exe;*.msu;*.msp;*.bat;*.cmd;*.ps1|All Files (*.*)|*.*"
-        $ofd.Title = "Select Installer / Software Payload"
+        if ($curType -eq 'FileCopy') {
+            $ofd.Filter = "All Files (*.*)|*.*"
+            $ofd.Title = "Select Source File to Copy"
+        } else {
+            $ofd.Filter = "Installers & Batch/Scripts (*.bat;*.cmd;*.msi;*.exe;*.msp;*.msu;*.ps1)|*.bat;*.cmd;*.msi;*.exe;*.msp;*.msu;*.ps1|Batch Files (*.bat;*.cmd)|*.bat;*.cmd|MSI / MSP Packages (*.msi;*.msp)|*.msi;*.msp|Executables (*.exe)|*.exe|All Files (*.*)|*.*"
+            $ofd.Title = "Select Install File (.bat, .cmd, .msi, .exe, .msp, .msu, .ps1)"
+        }
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $edtPayloadPath.Text = $ofd.FileName
             if ([string]::IsNullOrWhiteSpace($edtName.Text)) {
-                $edtName.Text = "Install $([System.IO.Path]::GetFileNameWithoutExtension($ofd.FileName))"
-            }
-            # Auto-populate recommended silent install parameters
-            $ext = [System.IO.Path]::GetExtension($ofd.FileName).ToLower()
-            if ([string]::IsNullOrWhiteSpace($edtParameters.Text) -or $edtParameters.Text -match '^(/qn|/quiet|/S|-ExecutionPolicy)') {
-                switch ($ext) {
-                    ".msi" { $edtParameters.Text = "/qn /norestart" }
-                    ".msp" { $edtParameters.Text = "/qn /norestart" }
-                    ".msu" { $edtParameters.Text = "/quiet /norestart" }
-                    ".exe" { $edtParameters.Text = "/S /norestart" }
-                    ".bat" { $edtParameters.Text = "/c" }
-                    ".cmd" { $edtParameters.Text = "/c" }
-                    ".ps1" { $edtParameters.Text = "-ExecutionPolicy Bypass -NoProfile" }
+                if ($curType -eq 'FileCopy') {
+                    $edtName.Text = "Copy $([System.IO.Path]::GetFileName($ofd.FileName))"
+                } else {
+                    $edtName.Text = "Install $([System.IO.Path]::GetFileNameWithoutExtension($ofd.FileName))"
                 }
             }
+            if ($curType -eq 'Installer') {
+                $ext = [System.IO.Path]::GetExtension($ofd.FileName).ToLower()
+                if ([string]::IsNullOrWhiteSpace($edtParameters.Text) -or $edtParameters.Text -match '^(/qn|/quiet|/S|/c|-ExecutionPolicy)') {
+                    switch ($ext) {
+                        ".msi" { $edtParameters.Text = "/qn /norestart" }
+                        ".msp" { $edtParameters.Text = "/qn /norestart" }
+                        ".msu" { $edtParameters.Text = "/quiet /norestart" }
+                        ".exe" { $edtParameters.Text = "" }
+                        ".bat" { $edtParameters.Text = "" }
+                        ".cmd" { $edtParameters.Text = "" }
+                        ".ps1" { $edtParameters.Text = "" }
+                    }
+                }
+            }
+            & $updateFileDetailsAndPreview
         }
+    })
+
+    $edtBrowseFolder.Add_Click({
+        $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+        $fbd.Description = "Select Source Directory to Copy"
+        if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $edtPayloadPath.Text = $fbd.SelectedPath
+            $edtIncludeFolder.IsChecked = $true
+            if ([string]::IsNullOrWhiteSpace($edtName.Text)) {
+                $edtName.Text = "Copy Folder $([System.IO.Path]::GetFileName($fbd.SelectedPath))"
+            }
+            & $updateFileDetailsAndPreview
+        }
+    })
+
+    $edtClearPayload.Add_Click({
+        $edtPayloadPath.Text = ""
+        & $updateFileDetailsAndPreview
+    })
+
+    $edtClearParams.Add_Click({
+        $edtParameters.Text = ""
+        & $updateFileDetailsAndPreview
+    })
+
+    $edtClearScript.Add_Click({
+        $edtScript.Text = ""
+        & $updateFileDetailsAndPreview
+    })
+
+    $edtAddFilesBtn.Add_Click({
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog
+        $ofd.Filter = "All Files (*.*)|*.*"
+        $ofd.Title = "Select Additional File(s) to Stage in Remote Step Directory"
+        $ofd.Multiselect = $true
+        if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $existing = @(Split-AdditionalFilesList $edtAdditionalFiles.Text)
+            foreach ($f in $ofd.FileNames) {
+                if ($existing -notcontains $f) { $existing += $f }
+            }
+            $edtAdditionalFiles.Text = ($existing -join "; ")
+            & $updateFileDetailsAndPreview
+        }
+    })
+
+    $edtAddFolderBtn.Add_Click({
+        $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+        $fbd.Description = "Select Additional Folder to Stage in Remote Step Directory"
+        if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $existing = @(Split-AdditionalFilesList $edtAdditionalFiles.Text)
+            if ($existing -notcontains $fbd.SelectedPath) {
+                $existing += $fbd.SelectedPath
+            }
+            $edtAdditionalFiles.Text = ($existing -join "; ")
+            & $updateFileDetailsAndPreview
+        }
+    })
+
+    $edtClearAddFilesBtn.Add_Click({
+        $edtAdditionalFiles.Text = ""
+        & $updateFileDetailsAndPreview
     })
 
     $edtInsert.Add_Click({
@@ -3335,15 +3890,15 @@ function Show-StepEditor {
         $ofd.Filter = "Script Files (*.ps1;*.bat;*.cmd)|*.ps1;*.bat;*.cmd|All Files (*.*)|*.*"
         $ofd.Title = "Select Script File to Insert"
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $edtScript.Text = Get-Content -Path $ofd.FileName -Raw
+            $edtScript.Text = Get-Content -LiteralPath $ofd.FileName -Raw
             if ([string]::IsNullOrWhiteSpace($edtName.Text)) {
                 $edtName.Text = [System.IO.Path]::GetFileNameWithoutExtension($ofd.FileName)
             }
             $ext = [System.IO.Path]::GetExtension($ofd.FileName).ToLower()
             if ($ext -eq '.bat' -or $ext -eq '.cmd') {
-                $edtType.SelectedIndex = 1 # Batch
+                & $selectStepTypeByTag "Batch"
             } else {
-                $edtType.SelectedIndex = 0 # PowerShell
+                & $selectStepTypeByTag "PowerShell"
             }
         }
     })
@@ -3351,39 +3906,55 @@ function Show-StepEditor {
     $script:editorResult = $null
     $edtOK.Add_Click({
         if ([string]::IsNullOrWhiteSpace($edtName.Text)) {
-            [System.Windows.MessageBox]::Show("Step name is required.", "Validation", "OK", "Warning")
+            [System.Windows.MessageBox]::Show("Step Title is required.", "Validation", "OK", "Warning")
             return
         }
 
-        $selType = $edtType.SelectedIndex
-        $typeName = switch ($selType) {
-            0 { "PowerShell" }
-            1 { "Batch" }
-            2 { "Installer" }
-            3 { "Pause" }
-            default { "PowerShell" }
-        }
-
+        $typeName = & $getSelectedStepType
         $pSec = 0
-        if ($typeName -eq 'Pause') {
-            if (-not [int]::TryParse($edtPause.Text, [ref]$pSec) -or $pSec -le 0) {
-                [System.Windows.MessageBox]::Show("Pause seconds must be a positive integer.", "Validation", "OK", "Warning")
+        if ($typeName -in @('Pause', 'Reboot', 'Message')) {
+            if (-not [int]::TryParse($edtPause.Text, [ref]$pSec) -or $pSec -lt 0) {
+                [System.Windows.MessageBox]::Show("Seconds must be a non-negative integer.", "Validation", "OK", "Warning")
                 return
+            }
+            if ($typeName -eq 'Pause' -and $pSec -le 0) {
+                $pSec = 1
             }
         }
 
         if ($typeName -eq 'Installer') {
             if ([string]::IsNullOrWhiteSpace($edtPayloadPath.Text)) {
-                [System.Windows.MessageBox]::Show("Payload file path is required for Software Installer steps.", "Validation", "OK", "Warning")
+                [System.Windows.MessageBox]::Show("Install File path is required for Install steps.", "Validation", "OK", "Warning")
+                return
+            }
+        } elseif ($typeName -eq 'FileCopy') {
+            if ([string]::IsNullOrWhiteSpace($edtPayloadPath.Text) -and [string]::IsNullOrWhiteSpace($edtAdditionalFiles.Text)) {
+                [System.Windows.MessageBox]::Show("Please specify a Source Path or Additional Files to copy.", "Validation", "OK", "Warning")
+                return
+            }
+            if ([string]::IsNullOrWhiteSpace($edtTargetPath.Text)) {
+                [System.Windows.MessageBox]::Show("Target Folder on the remote computer is required for File Copy steps.", "Validation", "OK", "Warning")
+                return
+            }
+        } elseif ($typeName -eq 'Message') {
+            if ([string]::IsNullOrWhiteSpace($edtScript.Text)) {
+                [System.Windows.MessageBox]::Show("Please enter a message to display on the remote computer.", "Validation", "OK", "Warning")
                 return
             }
         }
 
-        $stepScriptVal        = if ($typeName -eq 'Pause' -or $typeName -eq 'Installer') { "" } else { $edtScript.Text }
-        $stepParamsVal        = if ($typeName -eq 'Pause') { "" } else { $edtParameters.Text.Trim() }
-        $stepPayloadPathVal   = if ($typeName -eq 'Installer') { $edtPayloadPath.Text.Trim() } else { "" }
-        $stepIncludeFolderVal = if ($typeName -eq 'Installer') { [bool]$edtIncludeFolder.IsChecked } else { $false }
+        $stepScriptVal        = if ($typeName -in @('PowerShell', 'Batch', 'Reboot', 'Message')) { $edtScript.Text } else { "" }
+        $stepParamsVal        = if ($typeName -in @('Installer', 'PowerShell', 'Batch')) { $edtParameters.Text.Trim() } else { "" }
+        $stepPayloadPathVal   = if ($typeName -in @('Installer', 'FileCopy')) { $edtPayloadPath.Text.Trim() } else { "" }
+        $stepIncludeFolderVal = if ($typeName -in @('Installer', 'FileCopy')) { [bool]$edtIncludeFolder.IsChecked } else { $false }
         $stepSilentInstallVal = if ($typeName -eq 'Installer') { [bool]$edtSilentInstall.IsChecked } else { $false }
+        $stepAddFilesVal      = if ($typeName -in @('Installer', 'PowerShell', 'Batch', 'FileCopy')) { ((Split-AdditionalFilesList $edtAdditionalFiles.Text) -join "; ") } else { "" }
+        $stepSuccessCodesVal  = if (-not [string]::IsNullOrWhiteSpace($edtSuccessCodes.Text)) { $edtSuccessCodes.Text.Trim() } else { Get-DefaultSuccessCodes $typeName }
+        $stepCustomCmdVal     = if ([bool]$chkCustomCmdLine.IsChecked) { $edtCommandLine.Text.Trim() } else { "" }
+        $stepTargetPathVal    = if ($typeName -eq 'FileCopy') { $edtTargetPath.Text.Trim() } else { "" }
+        $stepOverwriteVal     = if ($typeName -eq 'FileCopy') { [bool]$edtOverwriteFiles.IsChecked } else { $true }
+        $stepShutdownOnlyVal  = if ($typeName -eq 'Reboot') { [bool]$edtShutdownOnly.IsChecked } else { $false }
+        $stepCleanUpTempVal   = if ($typeName -in @('Installer', 'PowerShell', 'Batch')) { [bool]$edtCleanUpTemp.IsChecked } else { $true }
 
         if ($Existing) {
             $Existing.Name          = $edtName.Text.Trim()
@@ -3394,6 +3965,21 @@ function Show-StepEditor {
             $Existing.IncludeFolder = $stepIncludeFolderVal
             $Existing.SilentInstall = $stepSilentInstallVal
             $Existing.PauseSeconds  = $pSec
+            foreach ($propPair in @(
+                @{ Name = 'AdditionalFiles';   Val = $stepAddFilesVal },
+                @{ Name = 'SuccessCodes';      Val = $stepSuccessCodesVal },
+                @{ Name = 'CustomCommandLine'; Val = $stepCustomCmdVal },
+                @{ Name = 'TargetPath';        Val = $stepTargetPathVal },
+                @{ Name = 'OverwriteFiles';    Val = $stepOverwriteVal },
+                @{ Name = 'ShutdownOnly';      Val = $stepShutdownOnlyVal },
+                @{ Name = 'CleanUpTemp';       Val = $stepCleanUpTempVal }
+            )) {
+                if ($Existing.PSObject.Properties[$propPair.Name]) {
+                    $Existing.($propPair.Name) = $propPair.Val
+                } else {
+                    $Existing | Add-Member -NotePropertyName $propPair.Name -NotePropertyValue $propPair.Val -Force
+                }
+            }
             Update-StepSummary $Existing
             $script:editorResult = $Existing
         } else {
@@ -3404,7 +3990,14 @@ function Show-StepEditor {
                                 -PayloadPath $stepPayloadPathVal `
                                 -IncludeFolder $stepIncludeFolderVal `
                                 -SilentInstall $stepSilentInstallVal `
-                                -PauseSeconds $pSec
+                                -PauseSeconds $pSec `
+                                -AdditionalFiles $stepAddFilesVal `
+                                -SuccessCodes $stepSuccessCodesVal `
+                                -CustomCommandLine $stepCustomCmdVal `
+                                -TargetPath $stepTargetPathVal `
+                                -OverwriteFiles $stepOverwriteVal `
+                                -ShutdownOnly $stepShutdownOnlyVal `
+                                -CleanUpTemp $stepCleanUpTempVal
             $script:editorResult = $s
         }
 
@@ -3417,8 +4010,8 @@ function Show-StepEditor {
         $dlg.Close()
     })
 
-    $isScriptMode = ($edtType.SelectedIndex -le 1)
-    if ($isScriptMode) {
+    $curTypeInit = & $getSelectedStepType
+    if ($curTypeInit -in @('PowerShell', 'Batch')) {
         Register-ChildWindowLayoutPersistence -Dialog $dlg -WindowKey "StepEditor"
     } else {
         Register-ChildWindowLayoutPersistence -Dialog $dlg -WindowKey "StepEditor" -SkipHeightRestore
@@ -3504,6 +4097,26 @@ $btnAddInstaller.Add_Click({
     }
 })
 
+if ($btnAddFileCopy) {
+    $btnAddFileCopy.Add_Click({
+        $s = Show-StepEditor -DefaultType "FileCopy"
+        if ($s) {
+            $script:StepsCollection.Add($s)
+            Renumber-Steps
+        }
+    })
+}
+
+if ($btnAddReboot) {
+    $btnAddReboot.Add_Click({
+        $s = Show-StepEditor -DefaultType "Reboot"
+        if ($s) {
+            $script:StepsCollection.Add($s)
+            Renumber-Steps
+        }
+    })
+}
+
 $btnAddPause.Add_Click({
     $s = Show-StepEditor -DefaultType "Pause"
     if ($s) {
@@ -3511,6 +4124,26 @@ $btnAddPause.Add_Click({
         Renumber-Steps
     }
 })
+
+if ($btnAddMessage) {
+    $btnAddMessage.Add_Click({
+        $s = Show-StepEditor -DefaultType "Message"
+        if ($s) {
+            $script:StepsCollection.Add($s)
+            Renumber-Steps
+        }
+    })
+}
+
+if ($btnAddLogoff) {
+    $btnAddLogoff.Add_Click({
+        $s = Show-StepEditor -DefaultType "Logoff"
+        if ($s) {
+            $script:StepsCollection.Add($s)
+            Renumber-Steps
+        }
+    })
+}
 
 $btnCannedScripts.Add_Click({ Show-CannedScriptsDialog })
 
@@ -4799,6 +5432,40 @@ $dgSteps.Add_KeyDown({
 $script:LibraryPath = Join-Path $script:SettingsDir "package_library.json"
 $script:PackageLibrary = [System.Collections.Generic.List[PSCustomObject]]::new()
 
+function ConvertFrom-StepRecord {
+    param($st)
+    if ($null -eq $st) { return $null }
+    $normType = Normalize-StepType -Type ([string]$st.Type)
+    $succCodes = if ($st.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$st.SuccessCodes)) {
+        [string]$st.SuccessCodes
+    } else {
+        Get-DefaultSuccessCodes -Type $normType
+    }
+    $addFiles = if ($st.PSObject.Properties['AdditionalFiles']) { [string]$st.AdditionalFiles } else { "" }
+    $custCmd  = if ($st.PSObject.Properties['CustomCommandLine']) { [string]$st.CustomCommandLine } else { "" }
+    $tgtPath  = if ($st.PSObject.Properties['TargetPath']) { [string]$st.TargetPath } else { "" }
+    $overWr   = if ($st.PSObject.Properties['OverwriteFiles']) { [bool]$st.OverwriteFiles } else { $true }
+    $shutOnly = if ($st.PSObject.Properties['ShutdownOnly']) { [bool]$st.ShutdownOnly } else { $false }
+    $silent   = if ($st.PSObject.Properties['SilentInstall']) { [bool]$st.SilentInstall } else { $true }
+    $cleanTmp = if ($st.PSObject.Properties['CleanUpTemp']) { [bool]$st.CleanUpTemp } else { $true }
+
+    return (New-StepObject -Name "$($st.Name)" `
+                           -Type $normType `
+                           -Script "$($st.Script)" `
+                           -Parameters "$($st.Parameters)" `
+                           -PayloadPath "$($st.PayloadPath)" `
+                           -IncludeFolder ([bool]$st.IncludeFolder) `
+                           -SilentInstall $silent `
+                           -PauseSeconds ([int]$st.PauseSeconds) `
+                           -AdditionalFiles $addFiles `
+                           -SuccessCodes $succCodes `
+                           -CustomCommandLine $custCmd `
+                           -TargetPath $tgtPath `
+                           -OverwriteFiles $overWr `
+                           -ShutdownOnly $shutOnly `
+                           -CleanUpTemp $cleanTmp)
+}
+
 function Load-PackageLibrary {
     $script:PackageLibrary.Clear()
     if (Test-Path $script:LibraryPath) {
@@ -4810,14 +5477,8 @@ function Load-PackageLibrary {
                 foreach ($p in $folder.Packages) {
                     $stList = [System.Collections.Generic.List[PSCustomObject]]::new()
                     foreach ($st in $p.Steps) {
-                        $stList.Add((New-StepObject -Name "$($st.Name)" `
-                                                   -Type "$($st.Type)" `
-                                                   -Script "$($st.Script)" `
-                                                   -Parameters "$($st.Parameters)" `
-                                                   -PayloadPath "$($st.PayloadPath)" `
-                                                   -IncludeFolder ([bool]$st.IncludeFolder) `
-                                                   -SilentInstall ([bool]$st.SilentInstall) `
-                                                   -PauseSeconds ([int]$st.PauseSeconds)))
+                        $conv = ConvertFrom-StepRecord -st $st
+                        if ($null -ne $conv) { $stList.Add($conv) }
                     }
                     $pkgList.Add([PSCustomObject]@{
                         Name  = [string]$p.Name
@@ -4984,15 +5645,8 @@ function Save-PackageToLibraryFolder {
     $targetFolder = Get-OrCreateLibraryFolder -FolderName $FolderName
     $stList = [System.Collections.Generic.List[PSCustomObject]]::new()
     foreach ($st in $Steps) {
-        if ($null -eq $st) { continue }
-        $stList.Add((New-StepObject -Name $st.Name `
-                                    -Type $st.Type `
-                                    -Script $st.Script `
-                                    -Parameters $st.Parameters `
-                                    -PayloadPath $st.PayloadPath `
-                                    -IncludeFolder ([bool]$st.IncludeFolder) `
-                                    -SilentInstall ([bool]$st.SilentInstall) `
-                                    -PauseSeconds ([int]$st.PauseSeconds)))
+        $conv = ConvertFrom-StepRecord -st $st
+        if ($null -ne $conv) { $stList.Add($conv) }
     }
     $existingPkg = $targetFolder.Packages | Where-Object { $_.Name -ieq $PackageName } | Select-Object -First 1
     if ($existingPkg) {
@@ -5168,15 +5822,10 @@ function Load-PackageIntoEditor {
     }
     $script:StepsCollection.Clear()
     foreach ($st in $Package.Steps) {
-        $copy = New-StepObject -Name $st.Name `
-                               -Type $st.Type `
-                               -Script $st.Script `
-                               -Parameters $st.Parameters `
-                               -PayloadPath $st.PayloadPath `
-                               -IncludeFolder ([bool]$st.IncludeFolder) `
-                               -SilentInstall ([bool]$st.SilentInstall) `
-                               -PauseSeconds ([int]$st.PauseSeconds)
-        $script:StepsCollection.Add($copy)
+        $copy = ConvertFrom-StepRecord -st $st
+        if ($null -ne $copy) {
+            $script:StepsCollection.Add($copy)
+        }
     }
     Renumber-Steps
     Update-ActivePackageBanner
@@ -5814,14 +6463,21 @@ function Invoke-ExportLibraryPackage {
             Folder      = Get-SelectedLibraryFolder
             Steps       = @($script:StepsCollection | ForEach-Object {
                 [PSCustomObject]@{
-                    Name          = $_.Name
-                    Type          = $_.Type
-                    Script        = $_.Script
-                    Parameters    = $_.Parameters
-                    PayloadPath   = $_.PayloadPath
-                    IncludeFolder = $_.IncludeFolder
-                    SilentInstall = $_.SilentInstall
-                    PauseSeconds  = $_.PauseSeconds
+                    Name              = $_.Name
+                    Type              = $_.Type
+                    Script            = $_.Script
+                    Parameters        = $_.Parameters
+                    PayloadPath       = $_.PayloadPath
+                    IncludeFolder     = $_.IncludeFolder
+                    SilentInstall     = $_.SilentInstall
+                    PauseSeconds      = $_.PauseSeconds
+                    AdditionalFiles   = $_.AdditionalFiles
+                    SuccessCodes      = $_.SuccessCodes
+                    CustomCommandLine = $_.CustomCommandLine
+                    TargetPath        = $_.TargetPath
+                    OverwriteFiles    = $_.OverwriteFiles
+                    ShutdownOnly      = $_.ShutdownOnly
+                    CleanUpTemp       = if ($_.PSObject.Properties['CleanUpTemp']) { [bool]$_.CleanUpTemp } else { $true }
                 }
             })
         }
@@ -5879,30 +6535,10 @@ function Invoke-ImportLibraryPackage {
 
             $script:StepsCollection.Clear()
             foreach ($p in $items) {
-                $type = switch ("$($p.Type)".ToLower()) {
-                    "pause"     { "Pause" }
-                    "batch"     { "Batch" }
-                    "installer" { "Installer" }
-                    default     { "PowerShell" }
+                $conv = ConvertFrom-StepRecord -st $p
+                if ($null -ne $conv) {
+                    $script:StepsCollection.Add($conv)
                 }
-                $params    = if ($p.Parameters) { "$($p.Parameters)" } else { "" }
-                $payload   = if ($p.PayloadPath) { "$($p.PayloadPath)" } else { "" }
-                $incFolder = if ($p.IncludeFolder) { [bool]$p.IncludeFolder } else { $false }
-                $silent    = if ($null -ne $p.SilentInstall) { [bool]$p.SilentInstall } else { $true }
-                $pauseSecs = 0
-                if ($p.PauseSeconds -is [System.Array]) {
-                    [int]::TryParse("$($p.PauseSeconds[0])", [ref]$pauseSecs) | Out-Null
-                } else {
-                    [int]::TryParse("$($p.PauseSeconds)", [ref]$pauseSecs) | Out-Null
-                }
-                $script:StepsCollection.Add((New-StepObject -Name "$($p.Name)" `
-                                                            -Type $type `
-                                                            -Script "$($p.Script)" `
-                                                            -Parameters $params `
-                                                            -PayloadPath $payload `
-                                                            -IncludeFolder $incFolder `
-                                                            -SilentInstall $silent `
-                                                            -PauseSeconds $pauseSecs))
             }
             Renumber-Steps
             $txtPkgName.Text = $importedPkgName
@@ -9189,7 +9825,11 @@ $stepRunner = {
         [string]$StepName = "Step",
         [string]$StepType = "PowerShell",
         [string]$PayloadFileName = "",
-        [bool]$SilentInstall = $true
+        [bool]$SilentInstall = $true,
+        [string]$SuccessCodes = "0",
+        [string]$CustomCommandLine = "",
+        [int]$PauseSeconds = 0,
+        [bool]$ShutdownOnly = $false
     )
     
     $ConfirmPreference = 'None'
@@ -9208,6 +9848,15 @@ $stepRunner = {
         $targetDir = [System.IO.Path]::GetTempPath()
     }
 
+    $stepWorkDir = [System.IO.Path]::Combine($targetDir, "Step_$StepOrder")
+    try {
+        if (-not [System.IO.Directory]::Exists($stepWorkDir)) {
+            [void][System.IO.Directory]::CreateDirectory($stepWorkDir)
+        }
+    } catch {
+        $stepWorkDir = $targetDir
+    }
+
     $safeName = ($StepName -replace '[\\/:*?"<>| ]', '_').Trim('_')
     if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = "Step$StepOrder" }
     if ($safeName.Length -gt 30) { $safeName = $safeName.Substring(0, 30) }
@@ -9220,21 +9869,24 @@ $stepRunner = {
 
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.WorkingDirectory = $targetDir
-        $psi.EnvironmentVariables["PSDEPLOY_STAGING_DIR"] = $targetDir
+        $psi.WorkingDirectory = $stepWorkDir
+        $psi.EnvironmentVariables["PSDEPLOY_STAGING_DIR"] = $stepWorkDir
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.RedirectStandardInput = $true
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
 
-        if ($StepType -eq 'Batch') {
-            # Write batch file using ASCII / UTF8 without BOM
-            $tempScript = [System.IO.Path]::Combine($targetDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).bat")
+        if (-not [string]::IsNullOrWhiteSpace($CustomCommandLine)) {
+            $psi.FileName = "cmd.exe"
+            $psi.Arguments = "/d /s /c `"$CustomCommandLine`""
+        } elseif ($StepType -eq 'Batch') {
+            # Write batch file using ASCII / Default encoding without BOM
+            $tempScript = [System.IO.Path]::Combine($stepWorkDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).bat")
             [System.IO.File]::WriteAllText($tempScript, $ScriptText, [System.Text.Encoding]::ASCII)
 
             $psi.FileName = "cmd.exe"
-            $arguments = "/d /c `"`"$tempScript`""
+            $arguments = "/d /s /c `"`"$tempScript`""
             if (-not [string]::IsNullOrWhiteSpace($ScriptParameters)) {
                 $arguments += " $ScriptParameters"
             }
@@ -9242,8 +9894,8 @@ $stepRunner = {
             $psi.Arguments = $arguments
 
         } elseif ($StepType -eq 'Installer') {
-            # Resolve payload location on target
-            $targetPayload = [System.IO.Path]::Combine($targetDir, "Step_$StepOrder", $PayloadFileName)
+            # Resolve payload location on target inside Step_$StepOrder working directory
+            $targetPayload = [System.IO.Path]::Combine($stepWorkDir, $PayloadFileName)
             if (-not [System.IO.File]::Exists($targetPayload)) {
                 $targetPayload = [System.IO.Path]::Combine($targetDir, $PayloadFileName)
             }
@@ -9252,41 +9904,114 @@ $stepRunner = {
             }
 
             $ext = [System.IO.Path]::GetExtension($targetPayload).ToLower()
+            $trimmedParams = if (-not [string]::IsNullOrWhiteSpace($ScriptParameters)) { $ScriptParameters.Trim() } else { "" }
             switch ($ext) {
                 ".msi" {
                     $psi.FileName = "msiexec.exe"
-                    $psi.Arguments = "/i `"$targetPayload`" $($ScriptParameters.Trim())"
+                    $msiArgs = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { $trimmedParams } else { "/qn /norestart" }
+                    $psi.Arguments = "/i `"$targetPayload`" $msiArgs"
                 }
                 ".msp" {
                     $psi.FileName = "msiexec.exe"
-                    $psi.Arguments = "/p `"$targetPayload`" $($ScriptParameters.Trim())"
+                    $mspArgs = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { $trimmedParams } else { "/qn /norestart" }
+                    $psi.Arguments = "/p `"$targetPayload`" $mspArgs"
                 }
                 ".msu" {
                     $psi.FileName = "wusa.exe"
-                    $psi.Arguments = "`"$targetPayload`" $($ScriptParameters.Trim())"
+                    $msuArgs = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { $trimmedParams } else { "/quiet /norestart" }
+                    $psi.Arguments = "`"$targetPayload`" $msuArgs"
                 }
                 ".bat" {
                     $psi.FileName = "cmd.exe"
-                    $psi.Arguments = "/d /c `"`"$targetPayload`" $ScriptParameters`""
+                    $batSuffix = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { " $trimmedParams" } else { "" }
+                    $psi.Arguments = "/d /s /c `"`"$targetPayload`"$batSuffix`""
                 }
                 ".cmd" {
                     $psi.FileName = "cmd.exe"
-                    $psi.Arguments = "/d /c `"`"$targetPayload`" $ScriptParameters`""
+                    $cmdSuffix = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { " $trimmedParams" } else { "" }
+                    $psi.Arguments = "/d /s /c `"`"$targetPayload`"$cmdSuffix`""
                 }
                 ".ps1" {
                     $psi.FileName = "powershell.exe"
-                    $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$targetPayload`" $ScriptParameters"
+                    $psSuffix = if (-not [string]::IsNullOrWhiteSpace($trimmedParams)) { " $trimmedParams" } else { "" }
+                    $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$targetPayload`"$psSuffix"
                 }
                 default {
                     # Direct executable setup (e.g. .exe)
                     $psi.FileName = $targetPayload
-                    $psi.Arguments = $ScriptParameters
+                    $psi.Arguments = $trimmedParams
                 }
             }
 
+        } elseif ($StepType -eq 'Reboot') {
+            $sec = [Math]::Max(0, [int]$PauseSeconds)
+            $flag = if ($ShutdownOnly) { "/s" } else { "/r" }
+            $msgArg = if (-not [string]::IsNullOrWhiteSpace($ScriptText)) {
+                $cleanMsg = ($ScriptText -replace '[\r\n]+', ' ').Replace('"', "'").Trim()
+                " /c `"$cleanMsg`""
+            } else { "" }
+            $psi.FileName = "shutdown.exe"
+            $psi.Arguments = "$flag /t $sec /f$msgArg"
+
+        } elseif ($StepType -eq 'Message') {
+            $waitSec = if ([int]$PauseSeconds -gt 0) { [int]$PauseSeconds } else { 30 }
+            $cleanMsg = if (-not [string]::IsNullOrWhiteSpace($ScriptText)) {
+                ($ScriptText -replace '[\r\n]+', ' ').Replace('"', "'").Trim()
+            } else {
+                "Notification from IT Administrator."
+            }
+            $msgScript = @"
+`$msgText = '$($cleanMsg.Replace("'", "''"))'
+`$msgExe = Join-Path `$env:SystemRoot 'System32\msg.exe'
+if (-not (Test-Path `$msgExe) -and (Test-Path (Join-Path `$env:SystemRoot 'Sysnative\msg.exe'))) {
+    `$msgExe = Join-Path `$env:SystemRoot 'Sysnative\msg.exe'
+}
+if (Test-Path `$msgExe) {
+    `$out = & `$msgExe * /TIME:$waitSec "`$msgText" 2>&1
+    if (`$LASTEXITCODE -eq 0 -or "`$out" -match 'No user exists|does not exist') {
+        Write-Output "Message dispatched (`$msgText)"
+        exit 0
+    }
+}
+Write-Output "Message recorded (`$msgText)"
+exit 0
+"@
+            $tempScript = [System.IO.Path]::Combine($stepWorkDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).ps1")
+            [System.IO.File]::WriteAllText($tempScript, $msgScript, [System.Text.Encoding]::UTF8)
+            $psi.FileName = "powershell.exe"
+            $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$tempScript`""
+
+        } elseif ($StepType -eq 'Logoff') {
+            $cleanMsg = if (-not [string]::IsNullOrWhiteSpace($ScriptText)) {
+                ($ScriptText -replace '[\r\n]+', ' ').Replace('"', "'").Trim()
+            } else { "" }
+            $logoffScript = @"
+`$warnText = '$($cleanMsg.Replace("'", "''"))'
+if (-not [string]::IsNullOrWhiteSpace(`$warnText)) {
+    try { & msg.exe * /TIME:5 "`$warnText" 2>`$null } catch {}
+}
+`$loggedOff = 0
+try {
+    `$qOut = & quser.exe 2>`$null
+    foreach (`$line in `$qOut) {
+        if (`$line -match '^\s*>?\s*(\S+)\s+(\S+|\s+)\s+(\d+)\s+(Active|Disc)') {
+            `$sessId = `$Matches[3]
+            & logoff.exe `$sessId 2>`$null
+            `$loggedOff++
+        }
+    }
+} catch {}
+Write-Output "Logoff step executed (Sessions logged off: `$loggedOff)."
+exit 0
+"@
+            $tempScript = [System.IO.Path]::Combine($stepWorkDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).ps1")
+            [System.IO.File]::WriteAllText($tempScript, $logoffScript, [System.Text.Encoding]::UTF8)
+            $psi.FileName = "powershell.exe"
+            $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$tempScript`""
+
         } else {
             # Default: PowerShell
-            $tempScript = [System.IO.Path]::Combine($targetDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).ps1")
+            $tempScript = [System.IO.Path]::Combine($stepWorkDir, "Deploy_Step_${StepOrder}_$([System.Guid]::NewGuid().ToString('N')).ps1")
             [System.IO.File]::WriteAllText($tempScript, $ScriptText, [System.Text.Encoding]::UTF8)
 
             $psi.FileName = "powershell.exe"
@@ -9377,8 +10102,23 @@ $stepRunner = {
             $stdErrText = $errTask.Result
         }
 
-        # Treat exit code 0 and 3010 (Reboot Required) as success
-        $isSuccess = ($exitCode -eq 0 -or $exitCode -eq 3010)
+        # Evaluate configured SuccessCodes (default: 0,1641,3010,2359302 for Installer; 0 for others)
+        $validCodes = [System.Collections.Generic.HashSet[int]]::new()
+        $rawCodes = if (-not [string]::IsNullOrWhiteSpace($SuccessCodes)) {
+            $SuccessCodes
+        } elseif ($StepType -eq 'Installer') {
+            "0,1641,3010,2359302"
+        } else {
+            "0"
+        }
+        foreach ($tok in ($rawCodes -split '[,;\s]+')) {
+            $parsedCode = 0
+            if (-not [string]::IsNullOrWhiteSpace($tok) -and [int]::TryParse($tok.Trim(), [ref]$parsedCode)) {
+                [void]$validCodes.Add($parsedCode)
+            }
+        }
+        if ($validCodes.Count -eq 0) { [void]$validCodes.Add(0) }
+        $isSuccess = $validCodes.Contains([int]$exitCode)
 
         # Preserve full multi-line output; only collapse intermediate lines that literally start with '[LIVE]'
         $liveLines   = @($stdOutLines | Where-Object { $_.TrimStart().StartsWith('[LIVE]', [System.StringComparison]::OrdinalIgnoreCase) })
@@ -9391,10 +10131,20 @@ $stepRunner = {
         $finalMessage = if ($outputLines.Count -gt 0) { ($outputLines -join "`r`n").Trim("`r", "`n") } else { "" }
 
         if ($isSuccess) {
-            if ($exitCode -eq 3010) {
-                $finalMessage = "Success — Exit Code 3010: Reboot Required"
+            if ($exitCode -eq 3010 -or $exitCode -eq 1641) {
+                $finalMessage = if ([string]::IsNullOrWhiteSpace($finalMessage)) {
+                    "Success - Exit Code ${exitCode}: Reboot Required"
+                } else {
+                    "$finalMessage (Exit Code ${exitCode}: Reboot Required)"
+                }
+            } elseif ($exitCode -eq 2359302) {
+                $finalMessage = if ([string]::IsNullOrWhiteSpace($finalMessage)) {
+                    "Success - Exit Code 2359302: Update Already Installed"
+                } else {
+                    "$finalMessage (Exit Code 2359302)"
+                }
             } elseif ([string]::IsNullOrWhiteSpace($finalMessage)) {
-                $finalMessage = "(Success — Exit Code 0)"
+                $finalMessage = "(Success - Exit Code $exitCode)"
             }
         } else {
             if (-not [string]::IsNullOrWhiteSpace($stdErrText)) {
@@ -10347,16 +11097,29 @@ function Invoke-DeploymentForTargets {
     $stepsData = @(foreach ($s in $steps) {
         $stepOrderIdx++
         $ord = if ($null -ne $s.Order -and [int]$s.Order -gt 0) { [int]$s.Order } else { $stepOrderIdx }
+        $normType = Normalize-StepType -Type ([string]$s.Type)
+        $succCodes = if ($s.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$s.SuccessCodes)) {
+            [string]$s.SuccessCodes
+        } else {
+            Get-DefaultSuccessCodes -Type $normType
+        }
         @{
-            Order         = $ord
-            Name          = [string]$s.Name
-            Type          = [string]$s.Type
-            Script        = [string]$s.Script
-            Parameters    = [string]$s.Parameters
-            PayloadPath   = [string]$s.PayloadPath
-            IncludeFolder = [bool]$s.IncludeFolder
-            SilentInstall = [bool]$s.SilentInstall
-            PauseSeconds  = if ($null -ne $s.PauseSeconds) { [int]$s.PauseSeconds } else { 0 }
+            Order             = $ord
+            Name              = [string]$s.Name
+            Type              = $normType
+            Script            = [string]$s.Script
+            Parameters        = [string]$s.Parameters
+            PayloadPath       = [string]$s.PayloadPath
+            IncludeFolder     = [bool]$s.IncludeFolder
+            SilentInstall     = [bool]$s.SilentInstall
+            PauseSeconds      = if ($null -ne $s.PauseSeconds) { [int]$s.PauseSeconds } else { 0 }
+            AdditionalFiles   = if ($s.PSObject.Properties['AdditionalFiles']) { [string]$s.AdditionalFiles } else { "" }
+            SuccessCodes      = $succCodes
+            CustomCommandLine = if ($s.PSObject.Properties['CustomCommandLine']) { [string]$s.CustomCommandLine } else { "" }
+            TargetPath        = if ($s.PSObject.Properties['TargetPath']) { [string]$s.TargetPath } else { "" }
+            OverwriteFiles    = if ($s.PSObject.Properties['OverwriteFiles']) { [bool]$s.OverwriteFiles } else { $true }
+            ShutdownOnly      = if ($s.PSObject.Properties['ShutdownOnly']) { [bool]$s.ShutdownOnly } else { $false }
+            CleanUpTemp       = if ($s.PSObject.Properties['CleanUpTemp']) { [bool]$s.CleanUpTemp } else { $true }
         }
     })
 
@@ -10412,7 +11175,11 @@ function Invoke-DeploymentForTargets {
         }
     }
 
-    $pool = [runspacefactory]::CreateRunspacePool(1, $maxConcurrency, $iss, $Host)
+    # Create RunspacePool without $Host so PS2EXE does not spawn modal/popup Windows Forms Progress_Form windows
+    # during Copy-Item -ToSession; progress records remain accessible via $ps.Streams.Progress for the Status table.
+    $pool = [runspacefactory]::CreateRunspacePool($iss)
+    [void]$pool.SetMinRunspaces(1)
+    [void]$pool.SetMaxRunspaces($maxConcurrency)
     $pool.Open()
     $workerHandles = New-Object System.Collections.Generic.List[object]
 
@@ -10625,54 +11392,195 @@ function Invoke-DeploymentForTargets {
                     continue
                 }
 
-                $payloadFileOnly = ""
-                if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
-                    if (Test-Path $step.PayloadPath) {
-                        $payloadFileOnly = [System.IO.Path]::GetFileName($step.PayloadPath)
-                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging payload ($payloadFileOnly) to target..."
-                        Send-Log "Target '$Computer': Staging payload '$payloadFileOnly' (IncludeFolder=$($step.IncludeFolder))..."
-
-                        $remoteStepDir = "$RemoteStaging\Step_$($step.Order)"
-                        if ($isLocalHost) {
-                            if (-not (Test-Path -LiteralPath $remoteStepDir)) {
-                                [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
-                            }
-                            if ($step.IncludeFolder) {
-                                $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
-                                Copy-Item -LiteralPath $parentDir -Destination $RemoteStaging -Recurse -Force
-                            } else {
-                                Copy-Item -LiteralPath $step.PayloadPath -Destination $remoteStepDir -Force
-                            }
-                        } else {
-                            Invoke-Command -Session $session -ScriptBlock {
-                                param($d)
-                                if (-not (Test-Path $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
-                            } -ArgumentList $remoteStepDir
-
-                            if ($step.IncludeFolder) {
-                                $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
-                                Copy-Item -LiteralPath $parentDir -Destination $RemoteStaging -ToSession $session -Recurse -Force
-                            } else {
-                                Copy-Item -LiteralPath $step.PayloadPath -Destination $remoteStepDir -ToSession $session -Force
-                            }
-                        }
-                        Send-Log "Target '$Computer': Payload staging complete."
+                if ($step.Type -eq 'FileCopy') {
+                    $srcPath = ([string]$step.PayloadPath).Trim()
+                    $dstPath = if (-not [string]::IsNullOrWhiteSpace($step.TargetPath)) {
+                        ([string]$step.TargetPath).Trim()
                     } else {
+                        "$RemoteStaging\FileCopy_Step_$($step.Order)"
+                    }
+                    $overwrite = if ($null -ne $step.OverwriteFiles) { [bool]$step.OverwriteFiles } else { $true }
+                    $extraPaths = @(
+                        if (-not [string]::IsNullOrWhiteSpace($step.AdditionalFiles)) {
+                            ($step.AdditionalFiles -split '[\r\n;]+') | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+                        }
+                    )
+
+                    if ([string]::IsNullOrWhiteSpace($srcPath) -and $extraPaths.Count -eq 0) {
                         $sw.Stop()
-                        $errText = "Installer payload file not found locally: $($step.PayloadPath)"
-                        Send-Log "Target '$Computer': Step $($step.Order) failed - payload not found: $($step.PayloadPath)" "ERROR"
+                        $errText = "File Copy step has no source file/folder configured."
                         Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration "0.0s" -Seconds 0.0 -Details $errText
                         Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -FailedStepIndex $i
                         $compFailed = $true
                         if (-not $ContinueOnError) { break }
                         continue
                     }
+
+                    if (-not [string]::IsNullOrWhiteSpace($srcPath) -and -not (Test-Path -LiteralPath $srcPath)) {
+                        $sw.Stop()
+                        $errText = "File Copy source not found locally: $srcPath"
+                        Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration "0.0s" -Seconds 0.0 -Details $errText
+                        Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -FailedStepIndex $i
+                        $compFailed = $true
+                        if (-not $ContinueOnError) { break }
+                        continue
+                    }
+
+                    try {
+                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Copying files to '$dstPath'..."
+                        $itemsToCopy = [System.Collections.Generic.List[string]]::new()
+                        if (-not [string]::IsNullOrWhiteSpace($srcPath)) {
+                            if ([System.IO.Directory]::Exists($srcPath)) {
+                                foreach ($child in @(Get-ChildItem -LiteralPath $srcPath -Force)) { $itemsToCopy.Add($child.FullName) }
+                            } elseif ($step.IncludeFolder) {
+                                $parentDir = [System.IO.Path]::GetDirectoryName($srcPath)
+                                foreach ($child in @(Get-ChildItem -LiteralPath $parentDir -Force)) { $itemsToCopy.Add($child.FullName) }
+                            } else {
+                                $itemsToCopy.Add($srcPath)
+                            }
+                        }
+                        foreach ($ep in $extraPaths) {
+                            if (Test-Path -LiteralPath $ep) { $itemsToCopy.Add($ep) }
+                        }
+
+                        $copiedCount = 0
+                        $totalToCopy = [Math]::Max(1, $itemsToCopy.Count)
+                        if ($isLocalHost) {
+                            if (-not (Test-Path -LiteralPath $dstPath)) {
+                                [void][System.IO.Directory]::CreateDirectory($dstPath)
+                            }
+                            foreach ($itemPath in $itemsToCopy) {
+                                $copiedCount++
+                                $itemLeaf = [System.IO.Path]::GetFileName($itemPath)
+                                $pct = [int][Math]::Round(($copiedCount * 100.0) / $totalToCopy)
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Copying ($copiedCount/$totalToCopy - $pct%): $itemLeaf -> $dstPath"
+                                Copy-Item -LiteralPath $itemPath -Destination $dstPath -Recurse -Force:$overwrite -ErrorAction Stop
+                            }
+                        } else {
+                            Invoke-Command -Session $session -ScriptBlock {
+                                param($d)
+                                if (-not (Test-Path -LiteralPath $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
+                            } -ArgumentList $dstPath -ErrorAction Stop
+
+                            foreach ($itemPath in $itemsToCopy) {
+                                $copiedCount++
+                                $itemLeaf = [System.IO.Path]::GetFileName($itemPath)
+                                $pct = [int][Math]::Round(($copiedCount * 100.0) / $totalToCopy)
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Copying ($copiedCount/$totalToCopy - $pct%): $itemLeaf -> $dstPath"
+                                Copy-Item -LiteralPath $itemPath -Destination $dstPath -ToSession $session -Recurse -Force:$overwrite -ErrorAction Stop
+                            }
+                        }
+
+                        $sw.Stop()
+                        $stepDurStr = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
+                        $stepDet = "Copied $copiedCount item(s) to '$dstPath'."
+                        Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Success" -Duration $stepDurStr -Seconds $sw.Elapsed.TotalSeconds -Details $stepDet
+                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stepDet -AddSeconds $sw.Elapsed.TotalSeconds
+                        Send-Log "Target '$Computer': Step $($step.Order) FileCopy complete ($stepDet)"
+                        continue
+                    } catch {
+                        $sw.Stop()
+                        $stepDurStr = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
+                        $errText = "File Copy failed: $($_.Exception.Message)"
+                        Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration $stepDurStr -Seconds $sw.Elapsed.TotalSeconds -Details $errText
+                        Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -AddSeconds $sw.Elapsed.TotalSeconds -FailedStepIndex $i
+                        Send-Log "Target '$Computer': Step $($step.Order) FileCopy failed: $errText" "ERROR"
+                        $compFailed = $true
+                        if (-not $ContinueOnError) { break }
+                        continue
+                    }
+                }
+
+                $payloadFileOnly = ""
+                $extraStagePaths = @(
+                    if (-not [string]::IsNullOrWhiteSpace($step.AdditionalFiles)) {
+                        ($step.AdditionalFiles -split '[\r\n;]+') | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+                    }
+                )
+                $needsStaging = (($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) -or ($extraStagePaths.Count -gt 0))
+
+                if ($needsStaging) {
+                    $remoteStepDir = "$RemoteStaging\Step_$($step.Order)"
+                    if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
+                        if (-not (Test-Path -LiteralPath $step.PayloadPath)) {
+                            $sw.Stop()
+                            $errText = "Installer payload file not found locally: $($step.PayloadPath)"
+                            Send-Log "Target '$Computer': Step $($step.Order) failed - payload not found: $($step.PayloadPath)" "ERROR"
+                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration "0.0s" -Seconds 0.0 -Details $errText
+                            Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -FailedStepIndex $i
+                            $compFailed = $true
+                            if (-not $ContinueOnError) { break }
+                            continue
+                        }
+                        $payloadFileOnly = [System.IO.Path]::GetFileName($step.PayloadPath)
+                    }
+
+                    $stageLabel = if (-not [string]::IsNullOrWhiteSpace($payloadFileOnly)) { $payloadFileOnly } else { "$($extraStagePaths.Count) additional file(s)" }
+                    Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging files ($stageLabel) to $remoteStepDir..."
+                    Send-Log "Target '$Computer': Staging '$stageLabel' to '$remoteStepDir' (IncludeFolder=$($step.IncludeFolder), ExtraFiles=$($extraStagePaths.Count))..."
+
+                    $stageItems = [System.Collections.Generic.List[string]]::new()
+                    if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
+                        if ([System.IO.Directory]::Exists($step.PayloadPath)) {
+                            foreach ($child in @(Get-ChildItem -LiteralPath $step.PayloadPath -Force)) { $stageItems.Add($child.FullName) }
+                        } elseif ($step.IncludeFolder) {
+                            $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
+                            foreach ($child in @(Get-ChildItem -LiteralPath $parentDir -Force)) { $stageItems.Add($child.FullName) }
+                        } else {
+                            $stageItems.Add($step.PayloadPath)
+                        }
+                    }
+                    foreach ($ep in $extraStagePaths) {
+                        if (Test-Path -LiteralPath $ep) { $stageItems.Add($ep) }
+                    }
+
+                    $stageIdx = 0
+                    $totalStageItems = [Math]::Max(1, $stageItems.Count)
+                    if ($isLocalHost) {
+                        if (-not (Test-Path -LiteralPath $remoteStepDir)) {
+                            [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
+                        }
+                        foreach ($stItem in $stageItems) {
+                            $stageIdx++
+                            $stLeaf = [System.IO.Path]::GetFileName($stItem)
+                            $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
+                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -Recurse -Force
+                        }
+                    } else {
+                        Invoke-Command -Session $session -ScriptBlock {
+                            param($d)
+                            if (-not (Test-Path -LiteralPath $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
+                        } -ArgumentList $remoteStepDir
+
+                        foreach ($stItem in $stageItems) {
+                            $stageIdx++
+                            $stLeaf = [System.IO.Path]::GetFileName($stItem)
+                            $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
+                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -ToSession $session -Recurse -Force
+                        }
+                    }
+                    Send-Log "Target '$Computer': Staging to '$remoteStepDir' complete."
                 }
 
                 $job = $null
                 $localPs = $null
                 try {
-                    $invokeArgs = @($step.Script, $step.Parameters, $RemoteStaging, $step.Order, $step.Name, $step.Type, $payloadFileOnly, ([bool]$step.SilentInstall))
+                    $invokeArgs = @(
+                        $step.Script,
+                        $step.Parameters,
+                        $RemoteStaging,
+                        $step.Order,
+                        $step.Name,
+                        $step.Type,
+                        $payloadFileOnly,
+                        ([bool]$step.SilentInstall),
+                        ([string]$step.SuccessCodes),
+                        ([string]$step.CustomCommandLine),
+                        ([int]$step.PauseSeconds),
+                        ([bool]$step.ShutdownOnly)
+                    )
                     $lastLiveLine = ""
                     $streamItems = [System.Collections.Generic.List[Object]]::new()
                     $lastHeartbeat = 0
@@ -10683,8 +11591,10 @@ function Invoke-DeploymentForTargets {
                         $localPs = [powershell]::Create()
                         [void]$localPs.AddScript($runnerSb)
                         foreach ($argVal in $invokeArgs) { [void]$localPs.AddArgument($argVal) }
+                        $localIn  = New-Object 'System.Management.Automation.PSDataCollection[psobject]'
+                        $localIn.Complete()
                         $localOut = New-Object 'System.Management.Automation.PSDataCollection[psobject]'
-                        $localAsync = $localPs.BeginInvoke($null, $localOut)
+                        $localAsync = $localPs.BeginInvoke($localIn, $localOut)
                         $localReadIdx = 0
 
                         while (-not $localAsync.IsCompleted) {
@@ -10845,6 +11755,34 @@ function Invoke-DeploymentForTargets {
                     }
                     if ($null -ne $job -and $job -is [System.Management.Automation.Job]) {
                         try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch {}
+                    }
+                    $shouldCleanTemp = if ($null -ne $step.CleanUpTemp) { [bool]$step.CleanUpTemp } else { $true }
+                    if ($needsStaging -and $shouldCleanTemp -and -not [string]::IsNullOrWhiteSpace($remoteStepDir)) {
+                        try {
+                            if ($isLocalHost) {
+                                if ([System.IO.Directory]::Exists($remoteStepDir)) {
+                                    try {
+                                        [System.IO.Directory]::Delete($remoteStepDir, $true)
+                                    } catch {
+                                        cmd.exe /d /s /c "rmdir /s /q `"$remoteStepDir`"" 2>$null | Out-Null
+                                    }
+                                }
+                            } elseif ($session) {
+                                Invoke-Command -Session $session -ScriptBlock {
+                                    param($d)
+                                    if ([System.IO.Directory]::Exists($d)) {
+                                        try {
+                                            [System.IO.Directory]::Delete($d, $true)
+                                        } catch {
+                                            cmd.exe /d /s /c "rmdir /s /q `"$d`"" 2>$null | Out-Null
+                                        }
+                                    }
+                                } -ArgumentList $remoteStepDir -ErrorAction SilentlyContinue
+                            }
+                            Send-Log "Target '$Computer': Cleaned up staged temp directory '$remoteStepDir'."
+                        } catch {
+                            Send-Log "Target '$Computer': Warning cleaning temp directory '$remoteStepDir': $($_.Exception.Message)" "WARN"
+                        }
                     }
                 }
             }
@@ -11053,6 +11991,29 @@ function Process-ActiveDeploymentsTick {
         }
 
         $runningWorkers = @($batch.WorkerHandles | Where-Object { -not $_.Handle.IsCompleted })
+        foreach ($rw in $runningWorkers) {
+            try {
+                if ($rw.PS -and $rw.PS.Streams.Progress.Count -gt 0) {
+                    $progList = @($rw.PS.Streams.Progress)
+                    $rw.PS.Streams.Progress.Clear()
+                    $latestProg = $progList | Where-Object { $_.RecordType -ne [System.Management.Automation.ProgressRecordType]::Completed } | Select-Object -Last 1
+                    if ($latestProg) {
+                        $tCtxProg = $batch.TargetContextMap[$rw.Computer]
+                        if ($tCtxProg -and -not $tCtxProg.Done -and $tCtxProg.Row) {
+                            $actText  = if (-not [string]::IsNullOrWhiteSpace($latestProg.Activity)) { $latestProg.Activity.Trim() } else { "Transferring files" }
+                            $statText = if (-not [string]::IsNullOrWhiteSpace($latestProg.StatusDescription)) { $latestProg.StatusDescription.Trim() } else { "" }
+                            $pctVal   = [int]$latestProg.PercentComplete
+                            $pctStr   = if ($pctVal -ge 0 -and $pctVal -le 100) { " ($pctVal%)" } else { "" }
+                            $progDetails = if ($statText -and $statText -ne $actText) { "$actText — $statText$pctStr" } else { "$actText$pctStr" }
+                            $elapsedRowSec = [Math]::Max(0.0, ([datetime]::Now - $batch.StartedAt).TotalSeconds)
+                            $tCtxProg.Row.Duration = ("{0:N1}s" -f $elapsedRowSec)
+                            $tCtxProg.Row.Details  = $progDetails
+                            $needsGridRefresh = $true
+                        }
+                    }
+                }
+            } catch {}
+        }
         if ($runningWorkers.Count -eq 0 -and $batch.EventQueue.IsEmpty) {
             $completedBatches.Add($batch)
         }
