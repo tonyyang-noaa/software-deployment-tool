@@ -1,4 +1,3 @@
-
 # CRITICAL: Environment variables and secrets
 .env
 .env.local
@@ -13,12 +12,6 @@
 *secret*
 *credential*
 *token*
-cognito-config-secrets.json
-aws-credentials.json
-client-secrets.*
-
-
-# Cognito credentials and configuration with secrets
 cognito-config-secrets.json
 aws-credentials.json
 client-secrets.*
@@ -53,7 +46,6 @@ coverage/
 
 # Logs
 logs/
-*.log
 
 # Temporary files
 tmp/
@@ -84,10 +76,7 @@ jmeter-results/
 test-tokens.txt
 
 # Any files containing "secret" or "credential" in the name
-*secret*
-*credential*
 *password*
-*token*
 
 # AWS and cloud provider credentials
 .aws/
@@ -95,24 +84,12 @@ test-tokens.txt
 .gcloud/
 
 # SSH keys
-*.pem
-*.key
 id_rsa*
 
-# Antigravity ephemeral session state (Keep .agents/ rules, skills, and agents tracked!)
-.agents/
-AGENTS.md
-graphify-out/
+# Antigravity ephemeral AST/Graphify caches (Keep .agents/ rules, skills, agents, AGENTS.md, and build_exe.ps1 tracked!)
+.agents/state/ast-line-graph.json
+graphify-out/cache/
+graphify-out/graph.html
 
-# Dependencies and build outputs
-node_modules/
-dist/
-build/
-.next/
-out/
-tmp/
-temp/
-*.log
-build_exe.ps1
+# Backup executable from build_exe.ps1
 ps_deploy.prev.exe
-ps_deploy.ico

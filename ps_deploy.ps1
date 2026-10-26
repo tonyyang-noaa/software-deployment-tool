@@ -2774,7 +2774,7 @@ function Show-SettingsDialog {
             # Migrate package JSON files from old to new directory
             try {
                 if ($oldPackagesDir -and (Test-Path $oldPackagesDir)) {
-                    $oldPkgFiles = Get-ChildItem -Path $oldPackagesDir -Filter "*.json" -File -ErrorAction SilentlyContinue
+                    $oldPkgFiles = Get-ChildItem -LiteralPath $oldPackagesDir -Filter "*.json" -File -ErrorAction SilentlyContinue
                     foreach ($pf in $oldPkgFiles) {
                         $targetPath = [System.IO.Path]::Combine($script:PackagesDir, $pf.Name)
                         if (-not (Test-Path $targetPath)) {
@@ -2787,7 +2787,7 @@ function Show-SettingsDialog {
             # Migrate log files from old to new directory
             try {
                 if ($oldLogsDir -and (Test-Path $oldLogsDir)) {
-                    $oldLogFiles = Get-ChildItem -Path $oldLogsDir -File -ErrorAction SilentlyContinue
+                    $oldLogFiles = Get-ChildItem -LiteralPath $oldLogsDir -File -ErrorAction SilentlyContinue
                     foreach ($lf in $oldLogFiles) {
                         $targetPath = [System.IO.Path]::Combine($script:LogsDir, $lf.Name)
                         if (-not (Test-Path $targetPath)) {
