@@ -2008,7 +2008,7 @@ $dgResults.Add_Sorting({
     }
 })
 
-$script:TargetsCollection.Add_CollectionChanged({
+$script:SuppressTargetSummaryUpdate = $false; $script:TargetsCollection.Add_CollectionChanged({ if ($script:SuppressTargetSummaryUpdate) { return }
     Update-TargetCountSummary
 })
 
@@ -7224,7 +7224,8 @@ function Load-ComputerInventory {
         $repairedSplitNames = [System.Collections.Generic.List[string]]::new()
 
         $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($dgTargets.ItemsSource)
-        $defer = if ($null -ne $view) { $view.DeferRefresh() } else { $null }
+        $defer = $null
+        $script:SuppressTargetSummaryUpdate = $true
         try {
             $script:TargetsCollection.Clear()
 
@@ -7283,6 +7284,7 @@ function Load-ComputerInventory {
                 }
             }
         } finally {
+            $script:SuppressTargetSummaryUpdate = $false
             if ($null -ne $defer) {
                 try { $defer.Dispose() } catch {}
             }
@@ -7354,6 +7356,9 @@ function Add-TargetComputers {
         return
     }
 
+    # Pass 1: Add or update normalized computer items with summary update suppressed during loop
+    $script:SuppressTargetSummaryUpdate = $true
+    try {
     foreach ($entry in $normalizedInput) {
         $clean = "$($entry.ComputerName)".Trim()
         if ([string]::IsNullOrWhiteSpace($clean)) { continue }
@@ -7390,6 +7395,10 @@ function Add-TargetComputers {
         }
     }
 
+    Update-TargetCountSummary
+    } finally {
+        $script:SuppressTargetSummaryUpdate = $false
+    }
     Update-TargetCountSummary
     if (-not $SkipSave) {
         Save-ComputerInventory
@@ -9630,6 +9639,9 @@ function Get-TargetCredential {
         [System.Security.SecureString]$SecurePassword
     )
 
+    if (Test-IsLocalComputer -ComputerName $TargetComputer) {
+        if (-not [string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) { $TargetComputer = $env:COMPUTERNAME }
+    }
     $hasSlash = $UserInput -match '[\\/]'
     $hasAt    = $UserInput -match '@'
 
@@ -11041,9 +11053,11 @@ function Invoke-DeploymentForTargets {
     }
 
     $hasRemoteTargets = @($TargetComputers | Where-Object { -not (Test-IsLocalComputer -ComputerName $_) }).Count -gt 0
+    $hasLocalTargets  = @($TargetComputers | Where-Object { Test-IsLocalComputer -ComputerName $_ }).Count -gt 0
+    $isCurrentProcessAdmin = try { ([System.Security.Principal.WindowsPrincipal][System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator) } catch { $false }
     $useCurrentCred = [bool]$script:AppSettings.UseCurrentCred
     $hasSavedCred = (-not [string]::IsNullOrWhiteSpace($script:AppSettings.Username)) -and ($null -ne $script:AppSettings.SecurePassword -and $script:AppSettings.SecurePassword.Length -gt 0)
-    if ($hasRemoteTargets -and -not $useCurrentCred -and -not $hasSavedCred) {
+    if ((($hasRemoteTargets -and -not $useCurrentCred) -or ($hasLocalTargets -and -not $isCurrentProcessAdmin)) -and -not $hasSavedCred) {
         $ans = [System.Windows.MessageBox]::Show("Admin credentials are not configured.`n`nOpen Settings dialog now to configure credentials or select current logon?", "Credentials Required", "YesNo", "Warning")
         if ($ans -eq 'Yes') {
             Show-SettingsDialog
@@ -11059,7 +11073,7 @@ function Invoke-DeploymentForTargets {
         $StartStepIndex = 0
     }
 
-    $sampleCred = if (-not $useCurrentCred) {
+    $sampleCred = if ($hasSavedCred -and ((-not $useCurrentCred) -or $hasLocalTargets)) {
         Get-TargetCredential -TargetComputer $TargetComputers[0] -DomainInput $script:AppSettings.Domain -UserInput $script:AppSettings.Username -SecurePassword $script:AppSettings.SecurePassword
     } else {
         @{ CredKind = 'Current' }
@@ -11151,7 +11165,8 @@ function Invoke-DeploymentForTargets {
     $targetContextMap = @{}
     foreach ($computer in $TargetComputers) {
         $row = Get-OrCreate-ComputerRow -ComputerName $computer -PackageName $pkgName -DeploymentId $deploymentId
-        $credInfo = if (-not $useCurrentCred) {
+        $isLocalTarget = Test-IsLocalComputer -ComputerName $computer
+        $credInfo = if ($hasSavedCred -and ((-not $useCurrentCred) -or $isLocalTarget)) {
             Get-TargetCredential -TargetComputer $computer -DomainInput $script:AppSettings.Domain -UserInput $script:AppSettings.Username -SecurePassword $script:AppSettings.SecurePassword
         } else {
             @{ Credential = $null; CredKind = 'Current'; UserString = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name }
@@ -11260,7 +11275,8 @@ function Invoke-DeploymentForTargets {
         $isLocalHost = Test-IsLocalComputer -ComputerName $Computer
         if ($isLocalHost) {
             $isReachable = $true
-            Send-Log "Target '$Computer': Local computer detected — executing directly on local machine (bypassing WinRM)."
+            $localAuthDesc = if ($CredInfo.Credential) { "saved admin credential '$($CredInfo.Credential.UserName)'" } else { "current logon '$($CredInfo.UserString)'" }
+            Send-Log "Target '$Computer': Local computer detected — using $localAuthDesc."
         } else {
             Send-RowUpdate -Step "Preflight Check" -Status "Running..." -Details "Checking network/WinRM reachability on $Computer..."
             Send-Log "Target '$Computer': Reachability check..."
@@ -11295,13 +11311,14 @@ function Invoke-DeploymentForTargets {
         }
 
         $session = $null
-        if (-not $isLocalHost) {
+        $isLocalDisk = $isLocalHost
+        if ((-not $isLocalHost) -or ($null -ne $CredInfo.Credential)) {
             $authStr = if ($CredInfo.Credential) { $CredInfo.Credential.UserName } else { 'DefaultLogon' }
             Send-Log "Target '$Computer': Opening WinRM PSSession (Auth=$authStr)..."
             try {
                 $sOpt = New-PSSessionOption -OpenTimeout 15000 -OperationTimeout 180000 -CancelTimeout 10000
                 $sessParams = @{
-                    ComputerName  = $Computer
+                    ComputerName  = $(if ($isLocalHost -and -not [string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) { $env:COMPUTERNAME } else { $Computer })
                     SessionOption = $sOpt
                     ErrorAction   = 'Stop'
                 }
@@ -11586,6 +11603,8 @@ function Invoke-DeploymentForTargets {
                     $lastHeartbeat = 0
                     $lastSecTick = -1
                     $stepWasStopped = $false
+                    $isLocalDisk = $isLocalHost
+                    if ($null -ne $session) { $isLocalHost = $false }
 
                     if ($isLocalHost) {
                         $localPs = [powershell]::Create()
@@ -11750,6 +11769,7 @@ function Invoke-DeploymentForTargets {
                     }
                 }
                 finally {
+                    $isLocalHost = $isLocalDisk
                     if ($null -ne $localPs) {
                         try { $localPs.Dispose() } catch {}
                     }
@@ -11759,7 +11779,7 @@ function Invoke-DeploymentForTargets {
                     $shouldCleanTemp = if ($null -ne $step.CleanUpTemp) { [bool]$step.CleanUpTemp } else { $true }
                     if ($needsStaging -and $shouldCleanTemp -and -not [string]::IsNullOrWhiteSpace($remoteStepDir)) {
                         try {
-                            if ($isLocalHost) {
+                            if ($isLocalHost -and $null -eq $session) {
                                 if ([System.IO.Directory]::Exists($remoteStepDir)) {
                                     try {
                                         [System.IO.Directory]::Delete($remoteStepDir, $true)
