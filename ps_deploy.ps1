@@ -772,15 +772,13 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <CheckBox x:Name="chkContinueOnError" Grid.Column="0" Content="Continue on step failure (default: stop computer's remaining steps)"/>
                 <Button x:Name="btnClearResultFilters" Grid.Column="1" Content="🧹 Clear Log Filters" Width="Auto" Height="30" Padding="10,2" Background="#45475A" Foreground="#CDD6F4" Margin="0,0,8,0" ToolTip="Clear all column header filters and sorting in the Status Log"/>
                 <Button x:Name="btnDeleteRow" Grid.Column="2" Content="🗑 Delete Row" Width="Auto" Height="30" Padding="12,2" Background="#FAB387" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Delete selected deployment result row"/>
                 <Button x:Name="btnClearStatus" Grid.Column="3" Content="🧹 Clear Status" Width="Auto" Height="30" Padding="12,2" Background="#F38BA8" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Clear all deployment result status rows"/>
                 <Button x:Name="btnSaveLogs" Grid.Column="4" Content="💾 Save Status Logs" Width="Auto" Height="30" Padding="12,2" Background="#89DCEB" Foreground="#11111B" Margin="0,0,8,0" ToolTip="Save deployment result status logs to a CSV or text file"/>
-                <Button x:Name="btnStopDeploy" Grid.Column="5" Content="⏹ Stop Deployment" Width="Auto" Height="30" Padding="14,2" Background="#F38BA8" Foreground="#11111B" Margin="0,0,8,0" IsEnabled="False" ToolTip="Stop the currently running deployment"/>
-                <Button x:Name="btnStart" Grid.Column="6" Content="🚀 Deploy Package" Width="Auto" Height="30" Padding="14,2" Background="#A6E3A1" Foreground="#11111B" Margin="0" ToolTip="Deploy current package steps to all selected target computers"/>
+                <Button x:Name="btnStopDeploy" Grid.Column="5" Content="⏹ Stop Deployment" Width="Auto" Height="30" Padding="14,2" Background="#F38BA8" Foreground="#11111B" Margin="0" IsEnabled="False" ToolTip="Stop the currently running deployment"/>
             </Grid>
 
             <Border Grid.Row="1" Background="#181825" CornerRadius="6" Padding="5">
@@ -10712,16 +10710,18 @@ if ($btnDeployCheckedPkgs) {
     })
 }
 
-$btnStart.Add_Click({
-    if ($script:StepsCollection.Count -eq 0) {
-        [System.Windows.MessageBox]::Show("The selected package has no steps to deploy. Double-click or right-click a package in Package Library to add or edit steps.", "Validation Error", "OK", "Warning")
-        return
-    }
-    $selectedTargets = @(Get-ValidatedSelectedTargetComputers)
-    if ($selectedTargets.Count -eq 0) { return }
-    $activePkgName = if ($txtPkgName -and -not [string]::IsNullOrWhiteSpace($txtPkgName.Text)) { $txtPkgName.Text.Trim() } else { "(Untitled Package)" }
-    Invoke-DeploymentForTargets -TargetComputers $selectedTargets -StartStepIndex 0 -PackageName $activePkgName -PackageSteps @($script:StepsCollection)
-})
+if ($btnStart) {
+    $btnStart.Add_Click({
+        if ($script:StepsCollection.Count -eq 0) {
+            [System.Windows.MessageBox]::Show("The selected package has no steps to deploy. Double-click or right-click a package in Package Library to add or edit steps.", "Validation Error", "OK", "Warning")
+            return
+        }
+        $selectedTargets = @(Get-ValidatedSelectedTargetComputers)
+        if ($selectedTargets.Count -eq 0) { return }
+        $activePkgName = if ($txtPkgName -and -not [string]::IsNullOrWhiteSpace($txtPkgName.Text)) { $txtPkgName.Text.Trim() } else { "(Untitled Package)" }
+        Invoke-DeploymentForTargets -TargetComputers $selectedTargets -StartStepIndex 0 -PackageName $activePkgName -PackageSteps @($script:StepsCollection)
+    })
+}
 
 # Load persistent inventory, AD sync config, status & UI layout state on startup and save on window close
 Load-ComputerInventory

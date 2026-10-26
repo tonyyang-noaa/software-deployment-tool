@@ -115,3 +115,4 @@ temp/
 *.log
 build_exe.ps1
 ps_deploy.prev.exe
+ps_deploy.ico

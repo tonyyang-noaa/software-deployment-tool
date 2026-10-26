@@ -52,7 +52,7 @@ The Remote Deployment Console uses a dark-themed (Catppuccin Mocha), resizable 4
 | ═══════════════════════════════════════ [Full-Width Horizontal GridSplitter] ═══════════════════════════ |
 +----------------------------------------------------------------------------------------------------------+
 | [☐] Continue on step failure   [🧹 Clear Log Filters] [🗑 Delete Row] [🧹 Clear Status] [💾 Save Status Logs] |
-|                                                                   [⏹ Stop Deployment] [🚀 Deploy Package] |
+|                                                                                        [⏹ Stop Deployment] |
 | +---------------+------------------+--------------------+--------+-------------------+-----------------+ |
 | | Computer Name | Package          | Current / Last Step| Status | Start / End Time  | Details         | |
 | +---------------+------------------+--------------------+--------+-------------------+-----------------+ |
@@ -227,7 +227,7 @@ Click **`🔄 Sync AD`** in the Computer Inventory toolbar to open the **Active 
 1. **Select a Package**: Click a package in **📚 PACKAGE LIBRARY** on the left. Verify the green badge in the **🚀 DEPLOYMENT** header shows `Active Package: <Package Name> (<N> steps)`.
 2. **Check Target Computers**: In **🎯 COMPUTER INVENTORY**, check the **`Deploy`** box next to one or more target computers:
    - Tip: Type `=Online` in the **Online Status** filter box and click **`☑ All / None`** to check only online computers.
-3. **Launch Deployment**: Click **`🚀 Deploy Selected Package`** (in the Deployment panel) or **`🚀 Deploy Package`** (above the Status Log).
+3. **Launch Deployment**: Click **`🚀 Deploy Selected Package`** in the **🚀 DEPLOYMENT** panel header (or right-click the package in **📚 PACKAGE LIBRARY** and choose **`🚀 Deploy This Package Now`**).
    - **Preflight Checks**:
      - If admin credentials are not configured and **Use Current Windows Logon Session** is unchecked, the console prompts you to open **`⚙️ Settings`**.
      - If any target requires **WinRM `TrustedHosts`** configuration (e.g., IP address or workgroup/local credentials), the console offers an elevated one-click prompt to add them.
