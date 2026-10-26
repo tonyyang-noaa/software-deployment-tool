@@ -157,7 +157,7 @@ The **📚 PACKAGE LIBRARY** panel on the left organizes all deployment packages
    - **`✏ Edit` / `🗑 Remove` / `▲ Up` / `▼ Down`**: Modify or reorder steps in the execution sequence.
 
 ### 4.3 Saving a Package
-- Inside the **Package Steps Builder** modal, click **`💾 Save to Library`** to save the package into the selected folder, or click **`✔ Done`** to keep the changes loaded in memory.
+- Inside the **Package Steps Builder** modal, click **`💾 Save to Library`** in the bottom-right corner to save the package into the selected folder.
 - You can also right-click any folder in **📚 Package Library** and click **`💾 Save Current Package Here`** (`Ctrl+S`).
 - All packages are persisted automatically in `package_library.json` and as individual JSON files under the `Packages\` directory.
 

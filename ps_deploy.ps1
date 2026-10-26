@@ -1137,13 +1137,12 @@ $btnSettings            = $window.FindName("btnSettings")
             <TextBlock Text="Package Name:" Margin="0,0,6,4"/>
             <TextBox x:Name="txtPkgName" Width="260" Height="28" Text="Custom Deployment Package" Margin="0,0,14,4" ToolTip="Name of this deployment package"/>
             <TextBlock Text="Library Folder:" Margin="0,0,6,4"/>
-            <ComboBox x:Name="txtPkgFolder" Width="170" Height="28" IsEditable="True" Text="General" Margin="0,0,12,4" ToolTip="Select an existing library folder or type a new folder name">
+            <ComboBox x:Name="txtPkgFolder" Width="170" Height="28" IsEditable="True" Text="General" Margin="0,0,0,4" ToolTip="Select an existing library folder or type a new folder name">
                 <ComboBoxItem IsSelected="True">General</ComboBoxItem>
                 <ComboBoxItem>Software</ComboBoxItem>
                 <ComboBoxItem>Scripts</ComboBoxItem>
                 <ComboBoxItem>Maintenance</ComboBoxItem>
             </ComboBox>
-            <Button x:Name="btnSaveToLibrary" Content="💾 Save to Library" Background="#A6E3A1" Padding="12,5" Margin="0,0,0,4" ToolTip="Save this package under the specified folder in the Package Library"/>
         </WrapPanel>
         <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="btnAddScript" Content="＋ PowerShell" Background="#89B4FA" Padding="10,5" Margin="0,0,6,4"/>
@@ -1175,8 +1174,8 @@ $btnSettings            = $window.FindName("btnSettings")
             </DataGrid.Columns>
         </DataGrid>
         <DockPanel Grid.Row="4" Margin="0,12,0,0">
-            <TextBlock Text="Tip: Double-click any step to edit its script or payload. Don't forget to click '💾 Save to Library' to persist changes." Foreground="#A6ADC8" FontSize="11.5" VerticalAlignment="Center"/>
-            <Button x:Name="btnCloseStepsModal" Content="✔ Done / Close" Width="130" Height="30" Background="#89B4FA" Foreground="#11111B" FontWeight="Bold" HorizontalAlignment="Right" DockPanel.Dock="Right"/>
+            <TextBlock Text="Tip: Double-click any step to edit its script or payload. Click '💾 Save to Library' to persist changes." Foreground="#A6ADC8" FontSize="11.5" VerticalAlignment="Center"/>
+            <Button x:Name="btnSaveToLibrary" Content="💾 Save to Library" Width="145" Height="30" Background="#A6E3A1" Foreground="#11111B" FontWeight="Bold" HorizontalAlignment="Right" DockPanel.Dock="Right" ToolTip="Save this package under the specified folder in the Package Library"/>
         </DockPanel>
     </Grid>
 </Window>
