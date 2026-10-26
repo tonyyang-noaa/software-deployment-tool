@@ -17,9 +17,9 @@ description: Concise Windows, PowerShell 5.1/7+, Batch (.bat/.cmd), WinForms/WPF
 3. **WinForms / WPF `[STAThread]` & Non-Blocking `RunspacePool` (`WL-002`):**
    - Verify `[System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA'` before loading `System.Windows.Forms` or `PresentationFramework`.
    - Offload long I/O (`robocopy`, `rclone`, disk scans) to a `RunspacePool` or background timer using `[hashtable]::Synchronized(@{})` so the UI thread stays responsive.
-4. **`ps2exe` Base Path, Mandatory `ps_deploy.ico` Icon & Windowless Native CLI (`WL-004`, `WL-009`):**
+4. **`ps2exe` Base Path, Mandatory `ps_deploy.ico` Icon, PE Metadata & Versioning (`WL-004`, `WL-009`):**
    - Resolve base paths via `[System.AppDomain]::CurrentDomain.BaseDirectory` (with `$PSScriptRoot` fallback).
-   - Package `ps_deploy.ps1` into `ps_deploy.exe` via `build_exe.ps1` with `-iconFile ps_deploy.ico` after passing `Get-PsAstGraph.ps1` Dual-Engine (PS 5.1 + PS 7 + HeaderGuard + XAML) validation.
+   - Package `ps_deploy.ps1` into `ps_deploy.exe` via `build_exe.ps1` with `-iconFile ps_deploy.ico`, `-company "NOAA Fisheries"`, `-product "Software Deployment Tool"`, `-description "Software Deployment Tool"`, `-copyright`, and `-version` (starting at `"1.4.0.0"`, incrementing the 4th number `x.x.x.+1` via `-ChangeType Minor` for minor changes and the 2nd number `1.(X+1).0.0` via `-ChangeType Major` for major changes) after passing `Get-PsAstGraph.ps1` Dual-Engine (PS 5.1 + PS 7 + HeaderGuard + XAML) validation.
    - Invoke native CLIs (`rclone.exe`, `robocopy.exe`) from GUI apps via `System.Diagnostics.ProcessStartInfo` with `CreateNoWindow = $true`, `UseShellExecute = $false`, and explicit `$LASTEXITCODE` checks (`robocopy` `0..7` = success; `>= 8` = failure).
 
 ## 2. Windows Batch (`*.bat`, `*.cmd`) Guardrails (`WL-003`)

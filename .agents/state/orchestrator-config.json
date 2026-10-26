@@ -111,7 +111,7 @@
     {
       "id": "WL-004",
       "category": "PS2EXE_AND_NATIVE_CLI",
-      "rule": "Resolve script base directories using [System.AppDomain]::CurrentDomain.BaseDirectory with $PSScriptRoot fallback so ps2exe compiled binaries locate adjacent files reliably, and ALWAYS pass -iconFile ps_deploy.ico when packaging ps_deploy.ps1 into ps_deploy.exe via build_exe.ps1. Run external CLIs in GUI apps via ProcessStartInfo with CreateNoWindow=$true and explicit $LASTEXITCODE checks."
+      "rule": "Resolve script base directories using [System.AppDomain]::CurrentDomain.BaseDirectory with $PSScriptRoot fallback so ps2exe compiled binaries locate adjacent files reliably. When packaging ps_deploy.ps1 into ps_deploy.exe via build_exe.ps1, ALWAYS apply -iconFile ps_deploy.ico, -company 'NOAA Fisheries', -product 'Software Deployment Tool', -description 'Software Deployment Tool', -copyright, and -version (starting at 1.4.0.0; increment 4th octet x.x.x.+1 via -ChangeType Minor for minor changes, and 2nd octet 1.(X+1).0.0 via -ChangeType Major for major changes). Run external CLIs in GUI apps via ProcessStartInfo with CreateNoWindow=$true and explicit $LASTEXITCODE checks."
     },
     {
       "id": "WL-005",

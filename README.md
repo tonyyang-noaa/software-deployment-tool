@@ -135,7 +135,60 @@ A lightweight, standalone Windows GUI utility designed for system administrators
 ## 📖 Step-by-Step User Guide
 
 ### Step 1: Launch the Application & Theme Overview
-Double-click [ps_deploy.exe](file:///c:/%23Project/software-deployment-tool/ps_deploy.exe). The application runs with a dark, high-contrast **Catppuccin Mocha** WPF interface (`#CDD6F4` light text on dark `#1E1E2E` surfaces, `#11111B` dark text on pastel accent buttons) engineered for WCAG 2.1 AA readability across all screens, tree views, grids, and modal dialogs.
+
+You can launch the **Remote Deployment Console** either as the standalone executable (`ps_deploy.exe`) or directly from the PowerShell source script (`ps_deploy.ps1`).
+
+#### Option A: Launching `ps_deploy.exe` (Expected Windows Security Warning — `Unknown Publisher`)
+Double-click [ps_deploy.exe](file:///c:/%23Project/software-deployment-tool/ps_deploy.exe).
+
+> [!NOTE]
+> **Expected Windows Security Warning (`Publisher: Unknown Publisher`):**
+> Because `ps_deploy.exe` is an internal administrative utility that has **not** been commercially code-signed with a public Certificate Authority (CA) digital certificate, Windows will display the standard **Open File - Security Warning** dialog when you launch a downloaded copy:
+>
+> ```text
+> +-----------------------------------------------------------------------+
+> | Open File - Security Warning                                        X |
+> +-----------------------------------------------------------------------+
+> | The publisher could not be verified. Are you sure you want to run     |
+> | this software?                                                        |
+> |                                                                       |
+> |        Name: C:\Users\<Username>\Downloads\ps_deploy.exe              |
+> |   Publisher: Unknown Publisher                                        |
+> |        Type: Application                                              |
+> |        From: C:\Users\<Username>\Downloads\ps_deploy.exe              |
+> |                                                                       |
+> |                                           [   Run   ]   [  Cancel  ]  |
+> +-----------------------------------------------------------------------+
+> | [!] This file does not have a valid digital signature that verifies   |
+> |     its publisher. You should only run software from publishers you   |
+> |     trust.                                                            |
+> +-----------------------------------------------------------------------+
+> ```
+>
+> - **This message is completely normal and expected** because the `.exe` is unsigned.
+> - Click **`Run`** to launch the console.
+> - **Tip (Prevent the warning on future launches):** Right-click `ps_deploy.exe` (or the downloaded `.zip` archive before extracting) → select **Properties** → check **Unblock** at the bottom of the **General** tab → click **Apply** / **OK**, or run `Unblock-File -LiteralPath .\ps_deploy.exe` in PowerShell.
+
+#### Option B: Alternative — Run `ps_deploy.ps1` Directly in PowerShell (No `.exe` Security Warning)
+If you prefer to avoid executable security prompts (`Unknown Publisher` / SmartScreen) or endpoint antivirus restrictions on packaged `.exe` files, you can run the native PowerShell source script [ps_deploy.ps1](file:///c:/%23Project/software-deployment-tool/ps_deploy.ps1) directly with identical functionality:
+
+1. **From a PowerShell Prompt (Recommended):**
+   Open **Windows PowerShell** (`powershell.exe`) and run:
+   ```powershell
+   cd "C:\Path\To\software-deployment-tool"
+   Unblock-File -LiteralPath .\ps_deploy.ps1
+   powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\ps_deploy.ps1
+   ```
+2. **Via Right-Click in File Explorer:**
+   - *(First time only after downloading)* Right-click `ps_deploy.ps1` → **Properties** → check **Unblock** → **OK**.
+   - Right-click `ps_deploy.ps1` and select **`Run with PowerShell`**.
+3. **Via a Custom Desktop Shortcut (Console-Free Launch):**
+   Create a Windows shortcut with the following **Target**:
+   ```text
+   powershell.exe -NoProfile -WindowStyle Hidden -STA -ExecutionPolicy Bypass -File "C:\Path\To\software-deployment-tool\ps_deploy.ps1"
+   ```
+
+The application runs with a dark, high-contrast **Catppuccin Mocha** WPF interface (`#CDD6F4` light text on dark `#1E1E2E` surfaces, `#11111B` dark text on pastel accent buttons) engineered for WCAG 2.1 AA readability across all screens, tree views, grids, and modal dialogs.
 
 ### Step 2: Manage Packages with the Package Library
 The left sidebar contains the **Package Library** spanning the full height alongside **Target Computers** (top-right) and **Package Steps** (bottom-right), providing folder-based package management persisted in `%LOCALAPPDATA%\PSDeploy\package_library.json`:
@@ -352,6 +405,7 @@ During execution, the `Details` column will dynamically update (`Encrypted: 8%` 
 ### Common Diagnostic Hints:
 | Error Message in Details | Root Cause & Resolution |
 | :--- | :--- |
+| `Open File - Security Warning: The publisher could not be verified (Publisher: Unknown Publisher)` | **Expected behavior:** `ps_deploy.exe` is not commercially code-signed. Click **`Run`** to proceed, check **Unblock** in `ps_deploy.exe` **Properties** to suppress future prompts, or run the script directly without `.exe` prompts via `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\ps_deploy.ps1`. |
 | `OFFLINE: Host unreachable via WinRM (ports 5985/5986) and ICMP ping.` | Target machine is powered off, disconnected from network, or Windows Firewall is blocking both port 5985 and ICMP. |
 | `Access is denied (0x80070005)` | The specified credentials do not belong to the local `Administrators` group on the target machine. |
 | `WinRM cannot complete the operation (0x800706BA)` | The WinRM service (`WinRM`) is stopped on the remote endpoint. Run `Start-Service WinRM` or deploy WinRM startup via Domain GPO. |

@@ -5,7 +5,8 @@ Welcome to the **Remote Deployment Console** (`ps_deploy.ps1` / `ps_deploy.exe`)
 ---
 
 ## 📑 Table of Contents
-1. [Console Architecture & Visual Workspace Map](#1-console-architecture--visual-workspace-map)
+1. [Launching the Application (`ps_deploy.exe` Security Warning vs. `ps_deploy.ps1` in PowerShell)](#1-launching-the-application-ps_deployexe-security-warning-vs-ps_deployps1-in-powershell)
+   - [Console Architecture & Visual Workspace Map](#13-console-architecture--visual-workspace-map)
 2. [Initial Configuration & Settings (`⚙️ Settings`)](#2-initial-configuration--settings-️-settings)
 3. [Navigating the Console & Customizing Your Layout](#3-navigating-the-console--customizing-your-layout)
 4. [Package Library Management (Create, Save, Import, Export)](#4-package-library-management-create-save-import-export)
@@ -16,7 +17,66 @@ Welcome to the **Remote Deployment Console** (`ps_deploy.ps1` / `ps_deploy.exe`)
 
 ---
 
-## 1. Console Architecture & Visual Workspace Map
+## 1. Launching the Application (`ps_deploy.exe` Security Warning vs. `ps_deploy.ps1` in PowerShell)
+
+You can run the **Remote Deployment Console** either as the compiled standalone executable ([ps_deploy.exe](file:///c:/%23Project/software-deployment-tool/ps_deploy.exe)) or directly via its PowerShell source script ([ps_deploy.ps1](file:///c:/%23Project/software-deployment-tool/ps_deploy.ps1)). Both methods launch the exact same GUI and share the same configuration files.
+
+### 1.1 Running `ps_deploy.exe` (Expected `Unknown Publisher` Windows Security Warning)
+When launching `ps_deploy.exe` for the first time after downloading it from a repository, email, or file share, Windows will display an **Open File - Security Warning** dialog:
+
+```text
++-----------------------------------------------------------------------+
+| Open File - Security Warning                                        X |
++-----------------------------------------------------------------------+
+| The publisher could not be verified. Are you sure you want to run     |
+| this software?                                                        |
+|                                                                       |
+|        Name: C:\Users\<Username>\Downloads\ps_deploy.exe              |
+|   Publisher: Unknown Publisher                                        |
+|        Type: Application                                              |
+|        From: C:\Users\<Username>\Downloads\ps_deploy.exe              |
+|                                                                       |
+|                                           [   Run   ]   [  Cancel  ]  |
++-----------------------------------------------------------------------+
+| [!] This file does not have a valid digital signature that verifies   |
+|     its publisher. You should only run software from publishers you   |
+|     trust.                                                            |
++-----------------------------------------------------------------------+
+```
+
+> [!IMPORTANT]
+> **Why This Message Appears & What Users/Admins Should Do:**
+> - **This security warning is completely normal and expected.** Because `ps_deploy.exe` is an internal administrative utility that has **not been code-signed with a commercial/public Certificate Authority (CA)** certificate, Windows displays `Publisher: Unknown Publisher` whenever the downloaded file carries a browser Mark-of-the-Web (`Zone.Identifier`).
+> - **How to Proceed:** Click **`Run`** to open the Remote Deployment Console.
+> - **How to Permanently Suppress the Prompt on Your Workstation:**
+>   1. Right-click `ps_deploy.exe` (or right-click the downloaded `.zip` archive *before* extracting it) and select **Properties**.
+>   2. At the bottom of the **General** tab, check the **`Unblock`** checkbox beside *"Security: This file came from another computer and might be blocked to help protect this computer."*
+>   3. Click **Apply** and **OK** (or run `Unblock-File -LiteralPath .\ps_deploy.exe` in PowerShell).
+
+### 1.2 Alternative: Run `ps_deploy.ps1` Directly in PowerShell (Zero `.exe` Security Warnings)
+If you or your users want to run the tool **without any `.exe` `Unknown Publisher` dialog** (or if endpoint security policies block unsigned `.exe` wrappers), run [ps_deploy.ps1](file:///c:/%23Project/software-deployment-tool/ps_deploy.ps1) directly in Windows PowerShell:
+
+- **Option 1 — Run from a PowerShell Window (Recommended):**
+  Open **Windows PowerShell** (`powershell.exe`) and execute:
+  ```powershell
+  cd "C:\Path\To\software-deployment-tool"
+  Unblock-File -LiteralPath .\ps_deploy.ps1
+  powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\ps_deploy.ps1
+  ```
+- **Option 2 — Right-Click in File Explorer (`Run with PowerShell`):**
+  1. *(First time only if downloaded from a browser)* Right-click `ps_deploy.ps1` → **Properties** → check **Unblock** → click **OK**.
+  2. Right-click `ps_deploy.ps1` and click **`Run with PowerShell`**.
+- **Option 3 — Create a One-Click Desktop Shortcut (No Console Window):**
+  1. Right-click your Desktop → **New** → **Shortcut**.
+  2. Paste the following as the shortcut location (updating the path to `ps_deploy.ps1`):
+     ```text
+     powershell.exe -NoProfile -WindowStyle Hidden -STA -ExecutionPolicy Bypass -File "C:\Path\To\software-deployment-tool\ps_deploy.ps1"
+     ```
+  3. Name the shortcut **Remote Deployment Console** and optionally set its icon to `ps_deploy.ico`.
+
+---
+
+### 1.3 Console Architecture & Visual Workspace Map
 
 The Remote Deployment Console uses a dark-themed (Catppuccin Mocha), resizable 4-zone layout with persistent splitter positions and column filters.
 
@@ -308,6 +368,7 @@ flowchart TD
 
 | Symptom / Error Message | Root Cause | Resolution |
 | :--- | :--- | :--- |
+| **`Open File - Security Warning: The publisher could not be verified (Publisher: Unknown Publisher)` when launching `ps_deploy.exe`** | Normal Windows behavior because `ps_deploy.exe` is an unsigned internal executable downloaded from a browser/network location (`Zone.Identifier` Mark-of-the-Web). | 1. Click **`Run`** (this warning is normal and expected for unsigned executables).<br>2. To stop repeated prompts, right-click `ps_deploy.exe` → **Properties** → check **Unblock** → **Apply**.<br>3. **Alternative (no `.exe` warning):** Run `ps_deploy.ps1` directly in PowerShell: `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\ps_deploy.ps1`. |
 | **`OFFLINE: Target not reachable on WinRM ports (5985/5986) or ICMP ping.`** | Target is powered off, disconnected from VPN/network, or Windows Firewall blocks both ICMP and TCP `5985`/`5986`. | 1. Verify the computer is online.<br>2. Ensure the **Windows Remote Management (WS-Management)** (`WinRM`) service is Running.<br>3. Configure GPO: *Computer Configuration -> Policies -> Windows Settings -> Security Settings -> System Services -> Windows Remote Management (WS-Management)* = **Automatic**, and allow **Windows Remote Management (HTTP-In)** in Windows Defender Firewall. |
 | **`WINRM SESSION FAILED ... Access is denied`** | Configured credentials lack local administrator rights on the target, or UAC remote restrictions blocked a non-domain local admin account. | 1. Click **`⚙️ Settings`** and verify `Domain\Username` and password.<br>2. Confirm the account belongs to the target's local `Administrators` group.<br>3. For workgroup / local admin accounts, set `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\LocalAccountTokenFilterPolicy` = `1` (DWORD). |
 | **`The WinRM client cannot process the request. Default authentication may be used with an IP address under the following conditions...`** | Deploying to an IP address or non-domain host without adding it to `WSMan:\localhost\Client\TrustedHosts`. | Click **Yes** when the console displays the **TrustedHosts Preflight** prompt before deployment, or deploy using the computer's Active Directory DNS hostname/FQDN. |

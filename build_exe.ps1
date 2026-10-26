@@ -7,12 +7,14 @@ param(
     [string]$SourceScript   = "",
     [string]$OutputExe      = "",
     [string]$IconFile       = "",
-    [string]$AppTitle       = "Remote Deployment Console",
-    [string]$AppDescription = "Enterprise Windows Remote Software Deployment & Administration Console",
-    [string]$CompanyName    = "Enterprise IT Operations",
-    [string]$ProductName    = "Remote Deployment Console",
+    [string]$AppTitle       = "Software Deployment Tool",
+    [string]$AppDescription = "Software Deployment Tool",
+    [string]$CompanyName    = "NOAA Fisheries",
+    [string]$ProductName    = "Software Deployment Tool",
     [string]$AppVersion     = "1.4.0.0",
-    [string]$Copyright      = "Copyright (c) 2026 Enterprise IT Operations. All rights reserved.",
+    [ValidateSet('None', 'Minor', 'Major')]
+    [string]$ChangeType     = "None",
+    [string]$Copyright      = "Copyright (c) 2026 NOAA Fisheries. All rights reserved.",
     [string]$CertThumbprint = ""
 )
 
@@ -33,6 +35,34 @@ if (-not (Test-Path -LiteralPath $SourceScript)) {
 if (-not (Test-Path -LiteralPath $IconFile)) {
     Write-Error "Icon file not found: $IconFile (ps_deploy.ico is required when packaging ps_deploy.exe)"
     exit 1
+}
+
+# ==============================================================================
+# Version Resolution & Automatic Version Incrementing (WL-004):
+# - Minor change (-ChangeType Minor): increments 4th octet by +1 (e.g., 1.4.0.0 -> 1.4.0.1)
+# - Major change (-ChangeType Major): increments 2nd octet by +1 (e.g., 1.4.0.0 -> 1.5.0.0)
+# ==============================================================================
+$verParts = @(1, 4, 0, 0)
+if ($AppVersion -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
+    $verParts = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4])
+}
+if ($ChangeType -eq 'Minor') {
+    $verParts[3] = $verParts[3] + 1
+    $AppVersion = "$($verParts[0]).$($verParts[1]).$($verParts[2]).$($verParts[3])"
+} elseif ($ChangeType -eq 'Major') {
+    $verParts[1] = $verParts[1] + 1
+    $verParts[2] = 0
+    $verParts[3] = 0
+    $AppVersion = "$($verParts[0]).$($verParts[1]).$($verParts[2]).$($verParts[3])"
+}
+
+if ($ChangeType -ne 'None' -and $PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
+    $selfText = [System.IO.File]::ReadAllText($PSCommandPath, [System.Text.Encoding]::UTF8)
+    $updatedSelf = [regex]::Replace($selfText, '(\[string\]\$AppVersion\s*=\s*")\d+\.\d+\.\d+\.\d+(")', "`${1}$AppVersion`${2}")
+    if ($updatedSelf -ne $selfText) {
+        [System.IO.File]::WriteAllText($PSCommandPath, $updatedSelf, (New-Object System.Text.UTF8Encoding($true)))
+        Write-Host "Updated default AppVersion in build_exe.ps1 to $AppVersion ($ChangeType change)" -ForegroundColor Cyan
+    }
 }
 
 $resolvedSource = (Resolve-Path -LiteralPath $SourceScript).Path
@@ -83,7 +113,7 @@ Unblock-File -LiteralPath $resolvedIcon   -ErrorAction SilentlyContinue
 # Compile with Full PE Assembly Metadata, Native x64 PE32+ Header & OS Manifest
 # Mitigates Windows Defender ML False Positives (Trojan:Win32/Bearfoos.A!ml)
 # ==============================================================================
-Write-Host "Compiling $resolvedSource into 64-bit PE32+ $OutputExe (Icon: $resolvedIcon, Version: $AppVersion)..." -ForegroundColor Cyan
+Write-Host "Compiling $resolvedSource into 64-bit PE32+ $OutputExe (Company: $CompanyName | Product: $ProductName | Version: $AppVersion)..." -ForegroundColor Cyan
 $ps2exeParams = @{
     inputFile       = $resolvedSource
     outputFile      = $OutputExe
@@ -151,4 +181,4 @@ if ($signingCert) {
 }
 
 $item = Get-Item -LiteralPath $OutputExe
-Write-Host "Build complete: $($item.FullName) ($([Math]::Round($item.Length / 1KB, 1)) KB) | Icon: $resolvedIcon | Authenticode: $sigStatusText" -ForegroundColor Green
+Write-Host "Build complete: $($item.FullName) ($([Math]::Round($item.Length / 1KB, 1)) KB) | Version: $AppVersion | Icon: $resolvedIcon | Authenticode: $sigStatusText" -ForegroundColor Green
