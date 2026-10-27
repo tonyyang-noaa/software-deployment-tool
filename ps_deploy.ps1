@@ -379,8 +379,11 @@ $ProgressPreference = 'SilentlyContinue'
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                    <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" Margin="10,3,0,0"/>
+                    <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                        <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.11" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                    </StackPanel>
+                    <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
                 <TextBlock x:Name="lblSettingsSummary" Grid.Column="1" Text="Auth: Loading... | Staging: C:\Temp\PSDeploy" 
                            Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="15,0,15,0" TextTrimming="CharacterEllipsis"/>
@@ -948,6 +951,11 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
+$script:AppVersion      = "1.4.0.11"
+$lblAppVersion          = $window.FindName("lblAppVersion")
+if ($lblAppVersion) {
+    $lblAppVersion.Text = "Version $script:AppVersion"
+}
 $lblSettingsSummary     = $window.FindName("lblSettingsSummary")
 $btnSettings            = $window.FindName("btnSettings")
 
