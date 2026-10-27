@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.11" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.12" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.11"
+$script:AppVersion      = "1.4.0.12"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -6641,8 +6641,8 @@ $script:ProbeRunspacePool      = $null
 $script:ActiveProbeJobs        = New-Object System.Collections.ArrayList
 $script:PendingProbeQueue      = New-Object System.Collections.Generic.Queue[object]
 $script:PendingProbeKeys       = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-$script:MaxConcurrentProbes    = 10
-$script:ProbeBatchDispatchSize = 5
+$script:MaxConcurrentProbes    = 6
+$script:ProbeBatchDispatchSize = 3
 $script:ProbeTotalQueued       = 0
 $script:ProbeCompletedCount    = 0
 $script:LastProbeUiRefresh     = [datetime]::MinValue
@@ -6657,6 +6657,7 @@ $script:TargetProbeWorkerScriptBlock = {
         [string]$DomainHint = "",
         [System.Management.Automation.PSCredential]$ProbeCred = $null
     )
+    $global:PSModuleAutoLoadingPreference = 'None'
     $res = @{
         ComputerName = $CompName
         OnlineStatus = "Offline"
@@ -7002,7 +7003,11 @@ $script:ProbeDispatcherTimer.Add_Tick({
                 }
             }
 
-            try { $job.PowerShell.Dispose() } catch {}
+            if ($isDone) {
+                try { $job.PowerShell.Dispose() } catch {}
+            } else {
+                try { [void]$job.PowerShell.BeginStop($null, $null) } catch {}
+            }
             $script:ActiveProbeJobs.RemoveAt($idx)
             $script:ProbeCompletedCount++
             $anyCompleted = $true
@@ -7097,7 +7102,13 @@ function Start-BackgroundTargetProbe {
     if (-not $TargetsToProbe -or $TargetsToProbe.Count -eq 0) { return }
 
     if ($null -eq $script:ProbeRunspacePool -or $script:ProbeRunspacePool.RunspacePoolStateInfo.State -ne [System.Management.Automation.Runspaces.RunspacePoolState]::Opened) {
-        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool(1, 12)
+        $probeIss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        $probeIss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry('PSModuleAutoLoadingPreference', 'None', '')))
+        $probeIss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry('ProgressPreference', 'SilentlyContinue', '')))
+        $probeIss.ImportPSModule(@('CimCmdlets'))
+        $script:ProbeRunspacePool = [runspacefactory]::CreateRunspacePool($probeIss)
+        [void]$script:ProbeRunspacePool.SetMinRunspaces(1)
+        [void]$script:ProbeRunspacePool.SetMaxRunspaces($script:MaxConcurrentProbes)
         $script:ProbeRunspacePool.Open()
     }
 
@@ -12883,6 +12894,8 @@ $script:StartupHydrationCompleted = $false
 $window.Add_ContentRendered({
     if ($script:StartupHydrationCompleted) { return }
     $script:StartupHydrationCompleted = $true
+    $mainHwnd = try { (New-Object System.Windows.Interop.WindowInteropHelper($window)).Handle.ToInt64() } catch { 0 }
+    Write-DiagnosticLog ("ContentRendered fired (HWND=0x{0:X})." -f $mainHwnd)
     if ($lblStatus) {
         $lblStatus.Text = "Loading package library and computer inventory..."
         $lblStatus.Foreground = "#38BDF8"
@@ -12893,6 +12906,7 @@ $window.Add_ContentRendered({
             Update-ActivePackageBanner
             Load-AdSyncConfig
             Update-AdSyncStatusBadge
+            Write-DiagnosticLog "Hydration Stage 1 (Library + AD Config) complete."
         } catch {}
         $null = $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::ContextIdle, [Action]{
             try {
@@ -12904,48 +12918,60 @@ $window.Add_ContentRendered({
                 Load-PersistentStatusState
                 Update-AdAutoSyncTimer
                 Update-AutoProbeTimer
+                Write-DiagnosticLog "Hydration Stage 2 (Inventory + Status + Timers) complete."
             } catch {}
         })
     })
 })
 
-$window.Add_Closing({
+$script:ShutdownCompleted = $false
+function Invoke-ApplicationShutdownCleanup {
+    if ($script:ShutdownCompleted) { return }
+    $script:ShutdownCompleted = $true
     $script:AppIsClosing = $true
-    if ($script:PkgStepsModalWindow) {
-        try { $script:PkgStepsModalWindow.Close() } catch {}
-    }
-    Save-UiLayoutState
-})
+    Write-DiagnosticLog "Invoke-ApplicationShutdownCleanup started (PID=$PID)."
 
-$window.Add_Closed({
+    # 1. Stop all UI DispatcherTimers immediately so no new background work is scheduled
+    try { if ($script:AdAutoSyncTimer) { $script:AdAutoSyncTimer.Stop() } } catch {}
+    try { if ($script:AutoProbeTimer) { $script:AutoProbeTimer.Stop() } } catch {}
+    try { if ($script:DeployMonitorTimer) { $script:DeployMonitorTimer.Stop() } } catch {}
+    try { if ($script:ProbeDispatcherTimer) { $script:ProbeDispatcherTimer.Stop() } } catch {}
+    try { if ($script:PendingProbeQueue) { $script:PendingProbeQueue.Clear() } } catch {}
+    try { if ($script:PendingProbeKeys) { $script:PendingProbeKeys.Clear() } } catch {}
+
+    # 2. Persist all state to disk FIRST before terminating process
+    try { Save-UiLayoutState } catch {}
+    try { Save-ComputerInventory } catch {}
+    try { Save-AdSyncConfig } catch {}
+    try { Save-PersistentStatusState } catch {}
+    Write-DiagnosticLog "Invoke-ApplicationShutdownCleanup state saved; terminating process (PID=$PID)."
+
+    # 3. Signal cancellation flag on any active deployment shared state
     try {
-        if ($script:AdAutoSyncTimer) { $script:AdAutoSyncTimer.Stop() }
-        if ($script:AutoProbeTimer) { $script:AutoProbeTimer.Stop() }
-        if ($script:DeployMonitorTimer) { $script:DeployMonitorTimer.Stop() }
         if ($script:ActiveDeployments) {
             foreach ($b in $script:ActiveDeployments) {
                 if ($b.SharedState) { $b.SharedState.CancelRequested = $true }
-                if ($b.Pool) { try { $b.Pool.Close(); $b.Pool.Dispose() } catch {} }
             }
             $script:ActiveDeployments.Clear()
         }
-        if ($script:ProbeDispatcherTimer) { $script:ProbeDispatcherTimer.Stop() }
-        if ($script:PendingProbeQueue) { $script:PendingProbeQueue.Clear() }
-        if ($script:PendingProbeKeys) { $script:PendingProbeKeys.Clear() }
-        if ($script:ActiveProbeJobs) {
-            foreach ($j in $script:ActiveProbeJobs) {
-                if ($j.PowerShell) { try { $j.PowerShell.Dispose() } catch {} }
-            }
-            $script:ActiveProbeJobs.Clear()
-        }
-        if ($script:ProbeRunspacePool) {
-            try { $script:ProbeRunspacePool.Close(); $script:ProbeRunspacePool.Dispose() } catch {}
-        }
     } catch {}
-    Save-ComputerInventory
-    Save-AdSyncConfig
-    Save-UiLayoutState
-    Save-PersistentStatusState
+
+    # 4. Hide main & modal windows immediately and terminate process via Win32 TerminateProcess
+    #    (avoids CLR finalizer / mi.dll CimSession / RunspacePool Close() deadlock in background)
+    try { if ($script:PkgStepsModalWindow) { $script:PkgStepsModalWindow.Hide() } } catch {}
+    try { $window.Hide() } catch {}
+    try { [System.Diagnostics.Process]::GetCurrentProcess().Kill() } catch {}
+    try { [System.Environment]::FailFast("Normal application exit") } catch {}
+}
+
+$window.Add_Closing({
+    $script:AppIsClosing = $true
+    Invoke-ApplicationShutdownCleanup
 })
 
-$window.ShowDialog() | Out-Null
+$window.Add_Closed({
+    Invoke-ApplicationShutdownCleanup
+})
+
+[void]$window.ShowDialog()
+Invoke-ApplicationShutdownCleanup

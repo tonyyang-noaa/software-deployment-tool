@@ -53,6 +53,6 @@ where $F$ = target files touched and $I_{\text{reg/ad/sec/exe}} \in \{0, 1\}$ (`
 
 ---
 
-## 5. Mandatory Final Output Gate: Subagent Report Suppression & Cumulative Cost Audit (`WL-006`)
+## 5. Mandatory Final Output Gate: Subagent Report Suppression & Per-Prompt Cost Audit (`WL-006`)
 - **Subagent Reporting Exemption (`subagent: true`):** All 5 specialist subagents **MUST NEVER** output the Markdown `### 📋 Response Details & Cost Audit` block inside their subagent sessions. They return compact `telemetry: { agent, wave, model, thinking, in_m, out_m }` in their 6-field JSON Handoff Envelope.
-- **Executive Rollup (`chief-of-staff` Only):** ONLY the final user-facing response from `chief-of-staff` concludes with the unified `### 📋 Response Details & Cost Audit` block aggregating all subagents from the current turn plus the cumulative session total from `.agents/state/session-ledger.json`.
+- **Executive Rollup (`chief-of-staff` Only):** ONLY the final user-facing response from `chief-of-staff` concludes with the unified `### 📋 Response Details & Cost Audit` block. This table MUST reflect **ONLY the current prompt turn** (aggregating the active orchestrator and any subagents dispatched during the prompt) and MUST **NEVER display cumulative session historical totals from previous prompts**.
