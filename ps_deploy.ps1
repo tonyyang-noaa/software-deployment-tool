@@ -3013,7 +3013,7 @@ function Get-DefaultSuccessCodes {
     param([string]$Type)
     $norm = Normalize-StepType $Type
     if ($norm -eq 'Installer') {
-        return "0,1641,3010,2359302"
+        return "0,1641,3010,2359302,17003"
     }
     return "0"
 }
@@ -3447,7 +3447,7 @@ function Renumber-Steps {
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <TextBlock Text="Success Codes:" FontWeight="SemiBold"/>
-                <TextBox x:Name="edtSuccessCodes" Grid.Column="1" Text="0,1641,3010,2359302" ToolTip="Comma-separated list of return codes that indicate the command was successful"/>
+                <TextBox x:Name="edtSuccessCodes" Grid.Column="1" Text="0,1641,3010,2359302,17003" ToolTip="Comma-separated list of return codes that indicate the command was successful"/>
             </Grid>
             <TextBlock Grid.Row="1" Margin="105,2,0,0" FontSize="11" Foreground="#A6ADC8"
                        Text="Comma separated list of return codes that indicate the command was successful."/>
@@ -3615,7 +3615,11 @@ function Show-StepEditor {
         $edtParameters.Text = [string]$Existing.Parameters
         $edtScript.Text = [string]$Existing.Script
         $edtAdditionalFiles.Text = if ($Existing.PSObject.Properties['AdditionalFiles']) { [string]$Existing.AdditionalFiles } else { "" }
-        $edtSuccessCodes.Text = if ($Existing.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.SuccessCodes)) { [string]$Existing.SuccessCodes } else { Get-DefaultSuccessCodes ([string]$Existing.Type) }
+        $existingCodes = if ($Existing.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.SuccessCodes)) { [string]$Existing.SuccessCodes } else { Get-DefaultSuccessCodes ([string]$Existing.Type) }
+        if ((Normalize-StepType ([string]$Existing.Type)) -eq 'Installer' -and $existingCodes.Trim() -eq '0,1641,3010,2359302') {
+            $existingCodes = "0,1641,3010,2359302,17003"
+        }
+        $edtSuccessCodes.Text = $existingCodes
         $edtTargetPath.Text = if ($Existing.PSObject.Properties['TargetPath'] -and -not [string]::IsNullOrWhiteSpace([string]$Existing.TargetPath)) { [string]$Existing.TargetPath } else { "C:\Temp\PSDeploy" }
         $edtOverwriteFiles.IsChecked = if ($Existing.PSObject.Properties['OverwriteFiles']) { [bool]$Existing.OverwriteFiles } else { $true }
         $edtShutdownOnly.IsChecked = if ($Existing.PSObject.Properties['ShutdownOnly']) { [bool]$Existing.ShutdownOnly } else { $false }
@@ -3682,8 +3686,8 @@ function Show-StepEditor {
                 $bdStepHint.Visibility         = [System.Windows.Visibility]::Visible
                 $lblStepHintText.Text          = "Install Step: Select a .bat, .cmd, .msi, .exe, .msp, .msu, or .ps1 install file. Check 'Include Entire Directory' (e.g. for Office M365 setup.exe + XML + Data folder) or add 'Additional Files' to copy and stage all required files into the remote step folder before running the installer."
                 $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
-                if ($edtSuccessCodes.Text -eq "0" -or [string]::IsNullOrWhiteSpace($edtSuccessCodes.Text)) {
-                    $edtSuccessCodes.Text = "0,1641,3010,2359302"
+                if ($edtSuccessCodes.Text -in @("0", "0,1641,3010,2359302") -or [string]::IsNullOrWhiteSpace($edtSuccessCodes.Text)) {
+                    $edtSuccessCodes.Text = "0,1641,3010,2359302,17003"
                 }
                 $dlg.Height = 560
             }
@@ -3698,7 +3702,7 @@ function Show-StepEditor {
                 $edtInsert.Visibility          = [System.Windows.Visibility]::Visible
                 $edtScript.Visibility          = [System.Windows.Visibility]::Visible
                 $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
-                if ($edtSuccessCodes.Text -eq "0,1641,3010,2359302" -and -not $Existing) {
+                if ($edtSuccessCodes.Text -in @("0,1641,3010,2359302", "0,1641,3010,2359302,17003") -and -not $Existing) {
                     $edtSuccessCodes.Text = "0"
                 }
                 $dlg.Height = 690
@@ -3714,7 +3718,7 @@ function Show-StepEditor {
                 $edtInsert.Visibility          = [System.Windows.Visibility]::Visible
                 $edtScript.Visibility          = [System.Windows.Visibility]::Visible
                 $pnlSuccessCodes.Visibility    = [System.Windows.Visibility]::Visible
-                if ($edtSuccessCodes.Text -eq "0,1641,3010,2359302" -and -not $Existing) {
+                if ($edtSuccessCodes.Text -in @("0,1641,3010,2359302", "0,1641,3010,2359302,17003") -and -not $Existing) {
                     $edtSuccessCodes.Text = "0"
                 }
                 $dlg.Height = 690
@@ -10103,6 +10107,15 @@ exit 0
                                         $lastVendorSummary = $msg
                                         $newNotices.Add($msg)
                                     }
+                                } elseif ($rawLine -match 'TaskRemoveInstallation::RemoveInstallation - (Deleting service|Removing install directory)') {
+                                    $stageDesc = $Matches[1]
+                                    $msg = "[LIVE] Office Click-to-Run Removal finalizing ($($lf.Name)): $stageDesc..."
+                                    if ($msg -ne $lastVendorSummary) {
+                                        $lastVendorSummary = $msg
+                                        $newNotices.Add($msg)
+                                    }
+                                } elseif ($rawLine -match 'ConfigFile::ParseRemoveNode: No products to remove specified') {
+                                    $newNotices.Add("[Installer Diagnostic - $($lf.Name)] Office Click-to-Run: No matching Office products remaining to remove (already uninstalled).")
                                 } elseif ($rawLine -match 'ShowErrorCodePrereqFailureDialog|Failed to elevate|Prereq::ShowPrereqFailure|ErrorCode:\s*\S+|ErrorMessage:\s*\S+') {
                                     $cols = $rawLine -split "`t"
                                     $detail = ($cols[($cols.Count - 1)]).Trim()
@@ -10195,6 +10208,26 @@ exit 0
                     "    if (`$null -ne `$ln) { `$outSw.WriteLine(`$ln) }",
                     "}",
                     "`$proc.WaitForExit()",
+                    "if ('$escFile' -match 'setup\.exe$' -and '$escArgs' -match '/configure') {",
+                    "    `$hasRemoveXml = `$false",
+                    "    try {",
+                    "        `$xmlFiles = Get-ChildItem -LiteralPath '$escWorkDir' -Filter '*.xml' -File -ErrorAction SilentlyContinue",
+                    "        foreach (`$xf in `$xmlFiles) {",
+                    "            if ([System.IO.File]::ReadAllText(`$xf.FullName) -match '<\s*Remove\b') { `$hasRemoveXml = `$true; break }",
+                    "        }",
+                    "    } catch {}",
+                    "    if (`$hasRemoveXml) {",
+                    "        `$waitSw = [System.Diagnostics.Stopwatch]::StartNew()",
+                    "        while (`$waitSw.Elapsed.TotalSeconds -lt 90) {",
+                    "            `$c2rSvc = Get-Service -Name 'ClickToRunSvc' -ErrorAction SilentlyContinue",
+                    "            `$c2rCfg = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue",
+                    "            `$hasProds = (`$null -ne `$c2rCfg -and -not [string]::IsNullOrWhiteSpace([string]`$c2rCfg.ProductReleaseIds))",
+                    "            if (-not `$hasProds -and (`$null -eq `$c2rSvc -or `$c2rSvc.Status -eq 'Stopped')) { break }",
+                    "            `$outSw.WriteLine(`"[LIVE] Waiting for Office Click-to-Run removal service to finalize (`$([int]`$waitSw.Elapsed.TotalSeconds)s)...`")",
+                    "            Start-Sleep -Seconds 2",
+                    "        }",
+                    "    }",
+                    "}",
                     "`$outSw.Dispose()",
                     "`$outFs.Dispose()",
                     "if (`$errTask.Wait(2000) -and -not [string]::IsNullOrWhiteSpace(`$errTask.Result)) {",
@@ -10432,12 +10465,12 @@ exit 0
             $stepFinished = $true
         }
 
-        # Evaluate configured SuccessCodes (default: 0,1641,3010,2359302 for Installer; 0 for others)
+        # Evaluate configured SuccessCodes (default: 0,1641,3010,2359302,17003 for Installer; 0 for others)
         $validCodes = [System.Collections.Generic.HashSet[int]]::new()
         $rawCodes = if (-not [string]::IsNullOrWhiteSpace($SuccessCodes)) {
             $SuccessCodes
         } elseif ($StepType -eq 'Installer') {
-            "0,1641,3010,2359302"
+            "0,1641,3010,2359302,17003"
         } else {
             "0"
         }
@@ -10447,8 +10480,32 @@ exit 0
                 [void]$validCodes.Add($parsedCode)
             }
         }
+        if ($StepType -eq 'Installer') {
+            # Always include Office Click-to-Run 17003 ("No products remaining to remove / removal completed")
+            # so existing saved packages with legacy "0,1641,3010,2359302" succeed without manual editing.
+            [void]$validCodes.Add(17003)
+        }
         if ($validCodes.Count -eq 0) { [void]$validCodes.Add(0) }
         $isSuccess = $validCodes.Contains([int]$exitCode)
+        $officeRemovalVerified = $false
+
+        if (-not $isSuccess -and $StepType -eq 'Installer' -and ($PayloadFileName -match 'setup\.exe' -or $psi.FileName -match 'setup\.exe') -and $psi.Arguments -match '/configure') {
+            try {
+                $xmlFiles = Get-ChildItem -LiteralPath $stepWorkDir -Filter '*.xml' -File -ErrorAction SilentlyContinue
+                $isRemoveCfg = $false
+                foreach ($xf in $xmlFiles) {
+                    if ([System.IO.File]::ReadAllText($xf.FullName) -match '<\s*Remove\b') { $isRemoveCfg = $true; break }
+                }
+                if ($isRemoveCfg) {
+                    $c2rCfg = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
+                    $remainingProds = if ($null -ne $c2rCfg -and $c2rCfg.PSObject.Properties['ProductReleaseIds']) { [string]$c2rCfg.ProductReleaseIds } else { "" }
+                    if ([string]::IsNullOrWhiteSpace($remainingProds)) {
+                        $isSuccess = $true
+                        $officeRemovalVerified = $true
+                    }
+                }
+            } catch {}
+        }
 
         # Preserve full multi-line output; only collapse intermediate lines that literally start with '[LIVE]'
         $liveLines   = @($stdOutLines | Where-Object { $_.TrimStart().StartsWith('[LIVE]', [System.StringComparison]::OrdinalIgnoreCase) })
@@ -10472,6 +10529,13 @@ exit 0
                     "Success - Exit Code 2359302: Update Already Installed"
                 } else {
                     "$finalMessage (Exit Code 2359302)"
+                }
+            } elseif ($exitCode -eq 17003 -or $officeRemovalVerified) {
+                $note17003 = "Success - Exit Code ${exitCode}: Office Click-to-Run Removal Completed (No Office C2R Products Remaining)"
+                $finalMessage = if ([string]::IsNullOrWhiteSpace($finalMessage)) {
+                    $note17003
+                } else {
+                    "$finalMessage`r`n($note17003)"
                 }
             } elseif ([string]::IsNullOrWhiteSpace($finalMessage)) {
                 $finalMessage = "(Success - Exit Code $exitCode)"
