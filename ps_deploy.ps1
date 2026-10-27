@@ -9860,7 +9860,12 @@ $stepRunner = {
         $targetDir = [System.IO.Path]::GetTempPath()
     }
 
-    $stepWorkDir = [System.IO.Path]::Combine($targetDir, "Step_$StepOrder")
+    $targetLeaf = [System.IO.Path]::GetFileName($targetDir.TrimEnd('\', '/'))
+    if ($targetLeaf -match '^Step_\d+') {
+        $stepWorkDir = $targetDir
+    } else {
+        $stepWorkDir = [System.IO.Path]::Combine($targetDir, "Step_$StepOrder")
+    }
     try {
         if (-not [System.IO.Directory]::Exists($stepWorkDir)) {
             [void][System.IO.Directory]::CreateDirectory($stepWorkDir)
@@ -9879,13 +9884,16 @@ $stepRunner = {
     $schedExitFile = $null
     $schedOutFile = $null
     $schedErrFile = $null
+    $schedPidFile = $null
     $stepFinished = $false
     $stdOutLines = [System.Collections.Generic.List[string]]::new()
     $stdErrText  = ""
     $exitCode    = -1
     $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
     $logFileName = "{0}_Step{1}_{2}_{3}.log" -f $env:COMPUTERNAME, $StepOrder, $safeName, $timestamp
-    $remoteLogFile = [System.IO.Path]::Combine($targetDir, $logFileName)
+    $logBaseDir = if ($targetLeaf -match '^Step_\d+') { [System.IO.Path]::GetDirectoryName($targetDir.TrimEnd('\', '/')) } else { $targetDir }
+    if ([string]::IsNullOrWhiteSpace($logBaseDir)) { $logBaseDir = $targetDir }
+    $remoteLogFile = [System.IO.Path]::Combine($logBaseDir, $logFileName)
 
     try {
         try {
@@ -10137,6 +10145,7 @@ exit 0
                 $schedOutFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskOut_${runGuid}.log")
                 $schedErrFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskErr_${runGuid}.log")
                 $schedExitFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskExit_${runGuid}.txt")
+                $schedPidFile  = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskPid_${runGuid}.txt")
 
                 [System.IO.File]::WriteAllText($schedOutFile, "", [System.Text.Encoding]::UTF8)
                 [System.IO.File]::WriteAllText($schedErrFile, "", [System.Text.Encoding]::UTF8)
@@ -10147,6 +10156,7 @@ exit 0
                 $escOut     = $schedOutFile.Replace("'", "''")
                 $escErr     = $schedErrFile.Replace("'", "''")
                 $escExit    = $schedExitFile.Replace("'", "''")
+                $escPid     = $schedPidFile.Replace("'", "''")
 
                 $wrapperLines = @(
                     "`$ErrorActionPreference = 'Continue'",
@@ -10162,6 +10172,7 @@ exit 0
                     "`$p.RedirectStandardError = `$true",
                     "`$p.RedirectStandardInput = `$true",
                     "`$proc = [System.Diagnostics.Process]::Start(`$p)",
+                    "try { [System.IO.File]::WriteAllText('$escPid', [string]`$proc.Id, [System.Text.Encoding]::UTF8) } catch {}",
                     "try { `$proc.StandardInput.Close() } catch {}",
                     "`$outFs = [System.IO.File]::Open('$escOut', [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)",
                     "`$outSw = New-Object System.IO.StreamWriter(`$outFs, [System.Text.Encoding]::UTF8)",
@@ -10521,14 +10532,42 @@ exit 0
             try {
                 if (-not $stepFinished) {
                     Stop-ScheduledTask -TaskName $schedTaskName -ErrorAction SilentlyContinue
-                    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-                        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$stepWorkDir*" } |
-                        ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+                    $spawnedPid = 0
+                    if ($schedPidFile -and [System.IO.File]::Exists($schedPidFile)) {
+                        try { [void][int]::TryParse([System.IO.File]::ReadAllText($schedPidFile).Trim(), [ref]$spawnedPid) } catch {}
+                    }
+                    try {
+                        $killGuid = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
+                        $killTaskName = "PSDeploy_Kill_${StepOrder}_${killGuid}"
+                        $killScript = [System.IO.Path]::Combine($logBaseDir, "PSDeploy_Kill_${killGuid}.ps1")
+                        $escKillDir = $stepWorkDir.Replace("'", "''")
+                        $killLines = @(
+                            "if ($spawnedPid -gt 0) { & taskkill.exe /F /T /PID $spawnedPid 2>`$null | Out-Null }",
+                            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { (`$_.ExecutablePath -and `$_.ExecutablePath -like '$escKillDir*') -or (`$_.CommandLine -and `$_.CommandLine -like '*$escKillDir*') } | ForEach-Object { & taskkill.exe /F /T /PID `$_.ProcessId 2>`$null | Out-Null; Stop-Process -Id `$_.ProcessId -Force -ErrorAction SilentlyContinue }"
+                        ) -join "`r`n"
+                        [System.IO.File]::WriteAllText($killScript, $killLines, [System.Text.Encoding]::UTF8)
+                        $killAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$killScript`""
+                        $killPrin = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+                        [void](Register-ScheduledTask -TaskName $killTaskName -Action $killAct -Principal $killPrin -Force -ErrorAction Stop)
+                        Start-ScheduledTask -TaskName $killTaskName -ErrorAction SilentlyContinue
+                        for ($kw = 0; $kw -lt 12; $kw++) {
+                            Start-Sleep -Milliseconds 200
+                            $kti = Get-ScheduledTask -TaskName $killTaskName -ErrorAction SilentlyContinue
+                            if (-not $kti -or $kti.State -ne 'Running') { break }
+                        }
+                        Unregister-ScheduledTask -TaskName $killTaskName -Confirm:$false -ErrorAction SilentlyContinue
+                        if ([System.IO.File]::Exists($killScript)) { [System.IO.File]::Delete($killScript) }
+                    } catch {
+                        if ($spawnedPid -gt 0) { try { & taskkill.exe /F /T /PID $spawnedPid 2>$null | Out-Null } catch {} }
+                        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$stepWorkDir*" } |
+                            ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+                    }
                 }
                 Unregister-ScheduledTask -TaskName $schedTaskName -Confirm:$false -ErrorAction SilentlyContinue
             } catch {}
         }
-        foreach ($f in @($tempScript, $schedWrapperScript, $schedExitFile, $schedOutFile, $schedErrFile)) {
+        foreach ($f in @($tempScript, $schedWrapperScript, $schedExitFile, $schedOutFile, $schedErrFile, $schedPidFile)) {
             if ($f -and [System.IO.File]::Exists($f)) {
                 try { [System.IO.File]::Delete($f) } catch {}
             }
@@ -11461,30 +11500,42 @@ function Invoke-DeploymentForTargets {
     $stepOrderIdx = 0
     $stepsData = @(foreach ($s in $steps) {
         $stepOrderIdx++
-        $ord = if ($null -ne $s.Order -and [int]$s.Order -gt 0) { [int]$s.Order } else { $stepOrderIdx }
-        $normType = Normalize-StepType -Type ([string]$s.Type)
-        $succCodes = if ($s.PSObject.Properties['SuccessCodes'] -and -not [string]::IsNullOrWhiteSpace([string]$s.SuccessCodes)) {
-            [string]$s.SuccessCodes
+        $getStepVal = {
+            param($obj, [string]$propName, $defaultVal)
+            if ($null -eq $obj) { return $defaultVal }
+            if ($obj -is [System.Collections.IDictionary]) {
+                if ($obj.Contains($propName) -and $null -ne $obj[$propName]) { return $obj[$propName] }
+                return $defaultVal
+            }
+            if ($obj.PSObject.Properties[$propName] -and $null -ne $obj.$propName) { return $obj.$propName }
+            return $defaultVal
+        }
+        $rawOrd = & $getStepVal $s 'Order' 0
+        $ord = if ($null -ne $rawOrd -and [int]$rawOrd -gt 0) { [int]$rawOrd } else { $stepOrderIdx }
+        $normType = Normalize-StepType -Type ([string](& $getStepVal $s 'Type' 'PowerShell'))
+        $rawSucc = [string](& $getStepVal $s 'SuccessCodes' '')
+        $succCodes = if (-not [string]::IsNullOrWhiteSpace($rawSucc)) {
+            $rawSucc
         } else {
             Get-DefaultSuccessCodes -Type $normType
         }
         @{
             Order             = $ord
-            Name              = [string]$s.Name
+            Name              = [string](& $getStepVal $s 'Name' "Step $ord")
             Type              = $normType
-            Script            = [string]$s.Script
-            Parameters        = [string]$s.Parameters
-            PayloadPath       = [string]$s.PayloadPath
-            IncludeFolder     = [bool]$s.IncludeFolder
-            SilentInstall     = [bool]$s.SilentInstall
-            PauseSeconds      = if ($null -ne $s.PauseSeconds) { [int]$s.PauseSeconds } else { 0 }
-            AdditionalFiles   = if ($s.PSObject.Properties['AdditionalFiles']) { [string]$s.AdditionalFiles } else { "" }
+            Script            = [string](& $getStepVal $s 'Script' '')
+            Parameters        = [string](& $getStepVal $s 'Parameters' '')
+            PayloadPath       = [string](& $getStepVal $s 'PayloadPath' '')
+            IncludeFolder     = [bool](& $getStepVal $s 'IncludeFolder' $false)
+            SilentInstall     = [bool](& $getStepVal $s 'SilentInstall' $true)
+            PauseSeconds      = [int](& $getStepVal $s 'PauseSeconds' 0)
+            AdditionalFiles   = [string](& $getStepVal $s 'AdditionalFiles' '')
             SuccessCodes      = $succCodes
-            CustomCommandLine = if ($s.PSObject.Properties['CustomCommandLine']) { [string]$s.CustomCommandLine } else { "" }
-            TargetPath        = if ($s.PSObject.Properties['TargetPath']) { [string]$s.TargetPath } else { "" }
-            OverwriteFiles    = if ($s.PSObject.Properties['OverwriteFiles']) { [bool]$s.OverwriteFiles } else { $true }
-            ShutdownOnly      = if ($s.PSObject.Properties['ShutdownOnly']) { [bool]$s.ShutdownOnly } else { $false }
-            CleanUpTemp       = if ($s.PSObject.Properties['CleanUpTemp']) { [bool]$s.CleanUpTemp } else { $true }
+            CustomCommandLine = [string](& $getStepVal $s 'CustomCommandLine' '')
+            TargetPath        = [string](& $getStepVal $s 'TargetPath' '')
+            OverwriteFiles    = [bool](& $getStepVal $s 'OverwriteFiles' $true)
+            ShutdownOnly      = [bool](& $getStepVal $s 'ShutdownOnly' $false)
+            CleanUpTemp       = [bool](& $getStepVal $s 'CleanUpTemp' $true)
         }
     })
 
@@ -11867,83 +11918,193 @@ function Invoke-DeploymentForTargets {
                     }
                 )
                 $needsStaging = (($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) -or ($extraStagePaths.Count -gt 0))
+                $remoteStepDir = "$RemoteStaging\Step_$($step.Order)"
 
-                if ($needsStaging) {
-                    $remoteStepDir = "$RemoteStaging\Step_$($step.Order)"
-                    if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
-                        if (-not (Test-Path -LiteralPath $step.PayloadPath)) {
-                            $sw.Stop()
-                            $errText = "Installer payload file not found locally: $($step.PayloadPath)"
-                            Send-Log "Target '$Computer': Step $($step.Order) failed - payload not found: $($step.PayloadPath)" "ERROR"
-                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration "0.0s" -Seconds 0.0 -Details $errText
-                            Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -FailedStepIndex $i
-                            $compFailed = $true
-                            if (-not $ContinueOnError) { break }
-                            continue
+                $unlockRemoteStepDir = {
+                    param([string]$TargetStepDir, [bool]$DeleteStepDir = $false)
+                    if ([string]::IsNullOrWhiteSpace($TargetStepDir)) { return }
+                    $unlockSb = {
+                        param([string]$DirToUnlock, [bool]$RemoveDir)
+                        try {
+                            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -like "$DirToUnlock*" } | ForEach-Object {
+                                try { & taskkill.exe /F /T /PID $_.Id 2>$null | Out-Null } catch {}
+                                try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+                            }
+                            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                                ($_.ExecutablePath -and $_.ExecutablePath -like "$DirToUnlock*") -or
+                                ($_.CommandLine -and $_.CommandLine -like "*$DirToUnlock*")
+                            } | ForEach-Object {
+                                try { & taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null } catch {}
+                                try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+                            }
+                        } catch {}
+                        try {
+                            $uGuid = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
+                            $uTaskName = "PSDeploy_Unlock_$uGuid"
+                            $parentBase = [System.IO.Path]::GetDirectoryName($DirToUnlock.TrimEnd('\', '/'))
+                            if ([string]::IsNullOrWhiteSpace($parentBase) -or -not [System.IO.Directory]::Exists($parentBase)) {
+                                $parentBase = [System.IO.Path]::GetTempPath()
+                            }
+                            $uScript = [System.IO.Path]::Combine($parentBase, "PSDeploy_Unlock_$uGuid.ps1")
+                            $escDir = $DirToUnlock.Replace("'", "''")
+                            $uLines = @(
+                                "Get-Process -ErrorAction SilentlyContinue | Where-Object { `$_.Path -and `$_.Path -like '$escDir*' } | ForEach-Object { & taskkill.exe /F /T /PID `$_.Id 2>`$null | Out-Null; Stop-Process -Id `$_.Id -Force -ErrorAction SilentlyContinue }",
+                                "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { (`$_.ExecutablePath -and `$_.ExecutablePath -like '$escDir*') -or (`$_.CommandLine -and `$_.CommandLine -like '*$escDir*') } | ForEach-Object { & taskkill.exe /F /T /PID `$_.ProcessId 2>`$null | Out-Null; Stop-Process -Id `$_.ProcessId -Force -ErrorAction SilentlyContinue }",
+                                "Get-ScheduledTask -TaskName 'PSDeploy_Step_*' -ErrorAction SilentlyContinue | Where-Object { `$_.State -eq 'Running' } | ForEach-Object { Stop-ScheduledTask -TaskName `$_.TaskName -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName `$_.TaskName -Confirm:`$false -ErrorAction SilentlyContinue }"
+                            )
+                            if ($RemoveDir) {
+                                $uLines += "Start-Sleep -Milliseconds 250"
+                                $uLines += "Remove-Item -LiteralPath '$escDir' -Recurse -Force -ErrorAction SilentlyContinue"
+                            }
+                            [System.IO.File]::WriteAllText($uScript, ($uLines -join "`r`n"), [System.Text.Encoding]::UTF8)
+                            $uAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$uScript`""
+                            $uPrin = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+                            [void](Register-ScheduledTask -TaskName $uTaskName -Action $uAct -Principal $uPrin -Force -ErrorAction Stop)
+                            Start-ScheduledTask -TaskName $uTaskName -ErrorAction SilentlyContinue
+                            for ($uw = 0; $uw -lt 16; $uw++) {
+                                Start-Sleep -Milliseconds 200
+                                $uti = Get-ScheduledTask -TaskName $uTaskName -ErrorAction SilentlyContinue
+                                if (-not $uti -or $uti.State -ne 'Running') { break }
+                            }
+                            Unregister-ScheduledTask -TaskName $uTaskName -Confirm:$false -ErrorAction SilentlyContinue
+                            if ([System.IO.File]::Exists($uScript)) { [System.IO.File]::Delete($uScript) }
+                        } catch {}
+                        if ($RemoveDir -and [System.IO.Directory]::Exists($DirToUnlock)) {
+                            try { Remove-Item -LiteralPath $DirToUnlock -Recurse -Force -ErrorAction SilentlyContinue } catch {}
                         }
-                        $payloadFileOnly = [System.IO.Path]::GetFileName($step.PayloadPath)
                     }
-
-                    $stageLabel = if (-not [string]::IsNullOrWhiteSpace($payloadFileOnly)) { $payloadFileOnly } else { "$($extraStagePaths.Count) additional file(s)" }
-                    Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging files ($stageLabel) to $remoteStepDir..."
-                    Send-Log "Target '$Computer': Staging '$stageLabel' to '$remoteStepDir' (IncludeFolder=$($step.IncludeFolder), ExtraFiles=$($extraStagePaths.Count))..."
-
-                    $stageItems = [System.Collections.Generic.List[string]]::new()
-                    if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
-                        if ([System.IO.Directory]::Exists($step.PayloadPath)) {
-                            foreach ($child in @(Get-ChildItem -LiteralPath $step.PayloadPath -Force)) { $stageItems.Add($child.FullName) }
-                        } elseif ($step.IncludeFolder) {
-                            $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
-                            foreach ($child in @(Get-ChildItem -LiteralPath $parentDir -Force)) { $stageItems.Add($child.FullName) }
+                    try {
+                        if ($null -ne $session) {
+                            Invoke-Command -Session $session -ScriptBlock $unlockSb -ArgumentList @($TargetStepDir, $DeleteStepDir) -ErrorAction SilentlyContinue
                         } else {
-                            $stageItems.Add($step.PayloadPath)
+                            & $unlockSb $TargetStepDir $DeleteStepDir
                         }
-                    }
-                    foreach ($ep in $extraStagePaths) {
-                        if (Test-Path -LiteralPath $ep) { $stageItems.Add($ep) }
-                    }
-
-                    $stageIdx = 0
-                    $totalStageItems = [Math]::Max(1, $stageItems.Count)
-                    if ($isLocalHost) {
-                        if (-not (Test-Path -LiteralPath $remoteStepDir)) {
-                            [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
-                        }
-                        foreach ($stItem in $stageItems) {
-                            $stageIdx++
-                            $stLeaf = [System.IO.Path]::GetFileName($stItem)
-                            $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
-                            $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
-                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
-                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
-                            Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -Recurse -Force
-                        }
-                    } else {
-                        Invoke-Command -Session $session -ScriptBlock {
-                            param($d)
-                            if (-not (Test-Path -LiteralPath $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
-                        } -ArgumentList $remoteStepDir
-
-                        foreach ($stItem in $stageItems) {
-                            $stageIdx++
-                            $stLeaf = [System.IO.Path]::GetFileName($stItem)
-                            $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
-                            $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
-                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
-                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
-                            Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -ToSession $session -Recurse -Force
-                        }
-                    }
-                    Send-Log "Target '$Computer': Staging to '$remoteStepDir' complete."
+                    } catch {}
                 }
 
                 $job = $null
                 $localPs = $null
+                $isLocalDisk = $isLocalHost
                 try {
+                    if ($needsStaging) {
+                        if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
+                            if (-not (Test-Path -LiteralPath $step.PayloadPath)) {
+                                $sw.Stop()
+                                $errText = "Installer payload file not found locally: $($step.PayloadPath)"
+                                Send-Log "Target '$Computer': Step $($step.Order) failed - payload not found: $($step.PayloadPath)" "ERROR"
+                                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Failed" -Duration "0.0s" -Seconds 0.0 -Details $errText
+                                Send-RowUpdate -Step $stepDesc -Status "Failed" -Details $errText -FailedStepIndex $i
+                                $compFailed = $true
+                                if (-not $ContinueOnError) { break }
+                                continue
+                            }
+                            $payloadFileOnly = [System.IO.Path]::GetFileName($step.PayloadPath)
+                        }
+
+                        $stageLabel = if (-not [string]::IsNullOrWhiteSpace($payloadFileOnly)) { $payloadFileOnly } else { "$($extraStagePaths.Count) additional file(s)" }
+                        Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging files ($stageLabel) to $remoteStepDir..."
+                        Send-Log "Target '$Computer': Staging '$stageLabel' to '$remoteStepDir' (IncludeFolder=$($step.IncludeFolder), ExtraFiles=$($extraStagePaths.Count))..."
+
+                        $stageItems = [System.Collections.Generic.List[string]]::new()
+                        if ($step.Type -eq 'Installer' -and -not [string]::IsNullOrWhiteSpace($step.PayloadPath)) {
+                            if ([System.IO.Directory]::Exists($step.PayloadPath)) {
+                                foreach ($child in @(Get-ChildItem -LiteralPath $step.PayloadPath -Force)) { $stageItems.Add($child.FullName) }
+                            } elseif ($step.IncludeFolder) {
+                                $parentDir = [System.IO.Path]::GetDirectoryName($step.PayloadPath)
+                                foreach ($child in @(Get-ChildItem -LiteralPath $parentDir -Force)) { $stageItems.Add($child.FullName) }
+                            } else {
+                                $stageItems.Add($step.PayloadPath)
+                            }
+                        }
+                        foreach ($ep in $extraStagePaths) {
+                            if (Test-Path -LiteralPath $ep) {
+                                $stageItems.Add($ep)
+                            } else {
+                                Send-Log "Target '$Computer': Warning - additional file not found locally: '$ep'" "WARN"
+                            }
+                        }
+
+                        $stageIdx = 0
+                        $totalStageItems = [Math]::Max(1, $stageItems.Count)
+                        if ($isLocalDisk) {
+                            if (-not (Test-Path -LiteralPath $remoteStepDir)) {
+                                [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
+                            }
+                            foreach ($stItem in $stageItems) {
+                                $stageIdx++
+                                $stLeaf = [System.IO.Path]::GetFileName($stItem)
+                                $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
+                                $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
+                                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
+                                try {
+                                    Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -Recurse -Force -ErrorAction Stop
+                                } catch {
+                                    Send-Log "Target '$Computer': Staging destination '$remoteStepDir\$stLeaf' is locked ($($_.Exception.Message)). Terminating orphaned Session 0 processes and retrying..." "WARN"
+                                    & $unlockRemoteStepDir $remoteStepDir $false
+                                    Start-Sleep -Milliseconds 300
+                                    try {
+                                        if (-not (Test-Path -LiteralPath $remoteStepDir)) {
+                                            [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
+                                        }
+                                        Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -Recurse -Force -ErrorAction Stop
+                                    } catch {
+                                        $fallbackStepDir = "$RemoteStaging\Step_$($step.Order)_$([guid]::NewGuid().ToString('N').Substring(0, 6))"
+                                        Send-Log "Target '$Computer': '$remoteStepDir' still locked; falling back to clean staging folder '$fallbackStepDir'." "WARN"
+                                        $remoteStepDir = $fallbackStepDir
+                                        [void][System.IO.Directory]::CreateDirectory($remoteStepDir)
+                                        foreach ($prevItem in $stageItems) {
+                                            Copy-Item -LiteralPath $prevItem -Destination $remoteStepDir -Recurse -Force -ErrorAction Stop
+                                            if ($prevItem -eq $stItem) { break }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Invoke-Command -Session $session -ScriptBlock {
+                                param($d)
+                                if (-not (Test-Path -LiteralPath $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
+                            } -ArgumentList $remoteStepDir -ErrorAction Stop
+
+                            foreach ($stItem in $stageItems) {
+                                $stageIdx++
+                                $stLeaf = [System.IO.Path]::GetFileName($stItem)
+                                $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
+                                $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                                Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
+                                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
+                                try {
+                                    Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -ToSession $session -Recurse -Force -ErrorAction Stop
+                                } catch {
+                                    Send-Log "Target '$Computer': Remote staging destination '$remoteStepDir\$stLeaf' is locked ($($_.Exception.Message)). Terminating orphaned remote processes and retrying..." "WARN"
+                                    & $unlockRemoteStepDir $remoteStepDir $false
+                                    Start-Sleep -Milliseconds 300
+                                    try {
+                                        Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -ToSession $session -Recurse -Force -ErrorAction Stop
+                                    } catch {
+                                        $fallbackStepDir = "$RemoteStaging\Step_$($step.Order)_$([guid]::NewGuid().ToString('N').Substring(0, 6))"
+                                        Send-Log "Target '$Computer': Remote '$remoteStepDir' still locked; falling back to clean staging folder '$fallbackStepDir'." "WARN"
+                                        $remoteStepDir = $fallbackStepDir
+                                        Invoke-Command -Session $session -ScriptBlock {
+                                            param($d)
+                                            if (-not (Test-Path -LiteralPath $d)) { [void][System.IO.Directory]::CreateDirectory($d) }
+                                        } -ArgumentList $remoteStepDir -ErrorAction Stop
+                                        foreach ($prevItem in $stageItems) {
+                                            Copy-Item -LiteralPath $prevItem -Destination $remoteStepDir -ToSession $session -Recurse -Force -ErrorAction Stop
+                                            if ($prevItem -eq $stItem) { break }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Send-Log "Target '$Computer': Staging to '$remoteStepDir' complete."
+                    }
+
+                    $runnerStagingArg = if ($needsStaging -and -not [string]::IsNullOrWhiteSpace($remoteStepDir)) { $remoteStepDir } else { $RemoteStaging }
                     $invokeArgs = @(
                         $step.Script,
                         $step.Parameters,
-                        $RemoteStaging,
+                        $runnerStagingArg,
                         $step.Order,
                         $step.Name,
                         $step.Type,
@@ -11960,7 +12121,6 @@ function Invoke-DeploymentForTargets {
                     $lastHeartbeat = 0
                     $lastSecTick = -1
                     $stepWasStopped = $false
-                    $isLocalDisk = $isLocalHost
                     if ($null -ne $session) { $isLocalHost = $false }
 
                     if ($isLocalHost) {
@@ -12065,6 +12225,7 @@ function Invoke-DeploymentForTargets {
                         $sw.Stop()
                         $stepDurStr = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
                         $compStopped = $true
+                        try { & $unlockRemoteStepDir $remoteStepDir $false } catch {}
                         $stopMsg = "Deployment stopped by user during step $($step.Order) ($($step.Name)) after $stepDurStr."
                         Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Stopped" -Duration $stepDurStr -Seconds $sw.Elapsed.TotalSeconds -Details $stopMsg
                         for ($skipIdx = $i + 1; $skipIdx -lt $Steps.Count; $skipIdx++) {
@@ -12148,6 +12309,9 @@ function Invoke-DeploymentForTargets {
                                         [System.IO.Directory]::Delete($remoteStepDir, $true)
                                     } catch {
                                         cmd.exe /d /s /c "rmdir /s /q `"$remoteStepDir`"" 2>$null | Out-Null
+                                        if ([System.IO.Directory]::Exists($remoteStepDir)) {
+                                            & $unlockRemoteStepDir $remoteStepDir $true
+                                        }
                                     }
                                 }
                             } elseif ($session) {
@@ -12161,6 +12325,10 @@ function Invoke-DeploymentForTargets {
                                         }
                                     }
                                 } -ArgumentList $remoteStepDir -ErrorAction SilentlyContinue
+                                $stillExists = Invoke-Command -Session $session -ScriptBlock { param($d) [System.IO.Directory]::Exists($d) } -ArgumentList $remoteStepDir -ErrorAction SilentlyContinue
+                                if ($stillExists) {
+                                    & $unlockRemoteStepDir $remoteStepDir $true
+                                }
                             }
                             Send-Log "Target '$Computer': Cleaned up staged temp directory '$remoteStepDir'."
                         } catch {
@@ -12404,14 +12572,24 @@ function Process-ActiveDeploymentsTick {
 
     foreach ($doneBatch in $completedBatches) {
         foreach ($w in $doneBatch.WorkerHandles) {
+            $workerErrMsg = ""
             try {
+                if ($w.PS -and $w.PS.Streams.Error -and $w.PS.Streams.Error.Count -gt 0) {
+                    $workerErrMsg = ($w.PS.Streams.Error | ForEach-Object { $_.Exception.Message }) -join " | "
+                }
                 if ($w.Handle -and $w.Handle.IsCompleted) {
                     [void]$w.PS.EndInvoke($w.Handle)
                 }
             } catch {
+                if ([string]::IsNullOrWhiteSpace($workerErrMsg)) {
+                    $workerErrMsg = $_.Exception.Message
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($workerErrMsg)) {
+                Write-DiagnosticLog "Target '$($w.Computer)': Worker stream error: $workerErrMsg" "ERROR"
                 $wCtx = $doneBatch.TargetContextMap[$w.Computer]
                 if ($wCtx -and $wCtx.Row -and $wCtx.Row.Status -notin @('Success', 'Failed', 'Stopped')) {
-                    Update-ComputerRow -Row $wCtx.Row -Status "Failed" -Details "Worker unhandled exception: $($_.Exception.Message)"
+                    Update-ComputerRow -Row $wCtx.Row -Status "Failed" -Details "Worker error: $workerErrMsg"
                 }
             }
             try { $w.PS.Dispose() } catch {}
@@ -12435,7 +12613,7 @@ function Process-ActiveDeploymentsTick {
                 $finalStop++
             } else {
                 if ($r.Status -ne 'Failed') {
-                    Update-ComputerRow -Row $r -Status "Failed" -Details (if ($r.Details) { $r.Details } else { "Deployment worker terminated before completion." })
+                    Update-ComputerRow -Row $r -Status "Failed" -Details $(if ($r.Details) { $r.Details } else { "Deployment worker terminated before completion." })
                 }
                 $finalFail++
             }
