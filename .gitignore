@@ -90,6 +90,7 @@ id_rsa*
 .agents/
 graphify-out/
 tests/
+AGENTS.md
 
 # Backup executable from build_exe.ps1
 ps_deploy.prev.exe
