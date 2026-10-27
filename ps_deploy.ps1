@@ -9874,12 +9874,36 @@ $stepRunner = {
     if ($safeName.Length -gt 30) { $safeName = $safeName.Substring(0, 30) }
 
     $tempScript = $null
+    $schedTaskName = $null
+    $schedWrapperScript = $null
+    $schedExitFile = $null
+    $schedOutFile = $null
+    $schedErrFile = $null
+    $stepFinished = $false
     $stdOutLines = [System.Collections.Generic.List[string]]::new()
     $stdErrText  = ""
     $exitCode    = -1
-    $remoteLogFile = $null
+    $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+    $logFileName = "{0}_Step{1}_{2}_{3}.log" -f $env:COMPUTERNAME, $StepOrder, $safeName, $timestamp
+    $remoteLogFile = [System.IO.Path]::Combine($targetDir, $logFileName)
 
     try {
+        try {
+            $initHeader = @(
+                "=== PSDeploy Remote Step Execution Log (LIVE) ===",
+                "ComputerName:  $env:COMPUTERNAME",
+                "Started At:    $((Get-Date).ToString('o'))",
+                "Step Order:    $StepOrder",
+                "Step Name:     $StepName",
+                "Step Type:     $StepType",
+                "Work Dir:      $stepWorkDir",
+                "Arguments:     $ScriptParameters",
+                "Status:        RUNNING...",
+                "--- Live Execution Stream ---"
+            ) -join "`r`n"
+            [System.IO.File]::WriteAllText($remoteLogFile, "$initHeader`r`n", [System.Text.Encoding]::UTF8)
+        } catch {}
+
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.WorkingDirectory = $stepWorkDir
         $psi.EnvironmentVariables["PSDEPLOY_STAGING_DIR"] = $stepWorkDir
@@ -10034,24 +10058,351 @@ exit 0
             $psi.Arguments = $arguments
         }
 
-        $process = [System.Diagnostics.Process]::Start($psi)
-        try { $process.StandardInput.Close() } catch {}
-        $errTask = $process.StandardError.ReadToEndAsync()
+        $appendLiveLogLine = {
+            param([string]$TextLine)
+            if ([string]::IsNullOrWhiteSpace($TextLine)) { return }
+            try {
+                [System.IO.File]::AppendAllText($remoteLogFile, "[$(Get-Date -Format 'HH:mm:ss')] $TextLine`r`n", [System.Text.Encoding]::UTF8)
+            } catch {}
+        }
 
-        $activeReadTask = $null
-        $timer = [System.Diagnostics.Stopwatch]::StartNew()
-        $lastPulse = 0
-
-        while (-not $process.HasExited) {
-            if ($null -eq $activeReadTask) {
-                $activeReadTask = $process.StandardOutput.ReadLineAsync()
+        $stepStartTime = (Get-Date).AddSeconds(-2)
+        $vendorLogOffsets = @{}
+        $lastVendorSummary = ""
+        $pollVendorInstallerLogs = {
+            $newNotices = [System.Collections.Generic.List[string]]::new()
+            if ($StepType -notin @('Installer', 'Batch')) { return $newNotices }
+            $candDirs = @("$env:SystemRoot\Temp", $env:TEMP, $stepWorkDir) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+            foreach ($d in $candDirs) {
+                try {
+                    $recentLogs = Get-ChildItem -LiteralPath $d -Filter "$($env:COMPUTERNAME)-*.log" -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -ge $stepStartTime }
+                    foreach ($lf in $recentLogs) {
+                        $prevLen = if ($vendorLogOffsets.ContainsKey($lf.FullName)) { [long]$vendorLogOffsets[$lf.FullName] } else { 0L }
+                        if ($lf.Length -le $prevLen) { continue }
+                        $fs = [System.IO.File]::Open($lf.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                        try {
+                            [void]$fs.Seek($prevLen, [System.IO.SeekOrigin]::Begin)
+                            $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8, $true)
+                            $chunk = $sr.ReadToEnd()
+                            $vendorLogOffsets[$lf.FullName] = $fs.Position
+                            foreach ($rawLine in ($chunk -split "\r?\n")) {
+                                if ([string]::IsNullOrWhiteSpace($rawLine)) { continue }
+                                if ($rawLine -match 'total progress is now (\d+)') {
+                                    $pct = $Matches[1]
+                                    $msg = "[LIVE] Installer Progress ($($lf.Name)): ${pct}% complete"
+                                    if ($msg -ne $lastVendorSummary) {
+                                        $lastVendorSummary = $msg
+                                        $newNotices.Add($msg)
+                                    }
+                                } elseif ($rawLine -match 'ShowErrorCodePrereqFailureDialog|Failed to elevate|Prereq::ShowPrereqFailure|ErrorCode:\s*\S+|ErrorMessage:\s*\S+') {
+                                    $cols = $rawLine -split "`t"
+                                    $detail = ($cols[($cols.Count - 1)]).Trim()
+                                    if (-not [string]::IsNullOrWhiteSpace($detail)) {
+                                        $newNotices.Add("[Installer Diagnostic - $($lf.Name)] $detail")
+                                    }
+                                }
+                            }
+                        } finally {
+                            $fs.Dispose()
+                        }
+                    }
+                } catch {}
             }
-            if ($activeReadTask.Wait(200)) {
-                $line = $activeReadTask.Result
-                $activeReadTask = $null
+            return $newNotices
+        }
+
+        # Detect whether WinRM spawned wsmprovhost in an interactive user session (SessionId > 0)
+        # or with Medium Mandatory Integrity (< 0x3000), which causes Office C2R setup.exe and
+        # enterprise installers to fail elevation (0-2005) or pop up dialogs on Session 1 desktop.
+        $currentSessId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+        $isHighIntegrity = $false
+        try {
+            $whoamiGroups = & whoami.exe /groups 2>$null
+            if (($whoamiGroups -join "`n") -match 'S-1-16-12288|S-1-16-16384') {
+                $isHighIntegrity = $true
+            }
+        } catch {}
+
+        $useSystemTaskBridge = ($StepType -notin @('Message', 'Logoff', 'Reboot')) -and (
+            ($StepType -eq 'Installer') -or ($currentSessId -gt 0) -or (-not $isHighIntegrity)
+        )
+
+        $usedScheduledTask = $false
+        if ($useSystemTaskBridge) {
+            try {
+                $runGuid = [System.Guid]::NewGuid().ToString('N').Substring(0, 12)
+                $schedTaskName = "PSDeploy_Step_${StepOrder}_${runGuid}"
+                $schedWrapperScript = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskRunner_${runGuid}.ps1")
+                $schedOutFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskOut_${runGuid}.log")
+                $schedErrFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskErr_${runGuid}.log")
+                $schedExitFile = [System.IO.Path]::Combine($stepWorkDir, "PSDeploy_TaskExit_${runGuid}.txt")
+
+                [System.IO.File]::WriteAllText($schedOutFile, "", [System.Text.Encoding]::UTF8)
+                [System.IO.File]::WriteAllText($schedErrFile, "", [System.Text.Encoding]::UTF8)
+
+                $escWorkDir = $stepWorkDir.Replace("'", "''")
+                $escFile    = $psi.FileName.Replace("'", "''")
+                $escArgs    = $psi.Arguments.Replace("'", "''")
+                $escOut     = $schedOutFile.Replace("'", "''")
+                $escErr     = $schedErrFile.Replace("'", "''")
+                $escExit    = $schedExitFile.Replace("'", "''")
+
+                $wrapperLines = @(
+                    "`$ErrorActionPreference = 'Continue'",
+                    "`$env:PSDEPLOY_STAGING_DIR = '$escWorkDir'",
+                    "Set-Location -LiteralPath '$escWorkDir'",
+                    "`$p = New-Object System.Diagnostics.ProcessStartInfo",
+                    "`$p.FileName = '$escFile'",
+                    "`$p.Arguments = '$escArgs'",
+                    "`$p.WorkingDirectory = '$escWorkDir'",
+                    "`$p.UseShellExecute = `$false",
+                    "`$p.CreateNoWindow = `$true",
+                    "`$p.RedirectStandardOutput = `$true",
+                    "`$p.RedirectStandardError = `$true",
+                    "`$p.RedirectStandardInput = `$true",
+                    "`$proc = [System.Diagnostics.Process]::Start(`$p)",
+                    "try { `$proc.StandardInput.Close() } catch {}",
+                    "`$outFs = [System.IO.File]::Open('$escOut', [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)",
+                    "`$outSw = New-Object System.IO.StreamWriter(`$outFs, [System.Text.Encoding]::UTF8)",
+                    "`$outSw.AutoFlush = `$true",
+                    "`$errTask = `$proc.StandardError.ReadToEndAsync()",
+                    "`$readTask = `$null",
+                    "while (-not `$proc.HasExited) {",
+                    "    if (`$null -eq `$readTask) { `$readTask = `$proc.StandardOutput.ReadLineAsync() }",
+                    "    if (`$readTask.Wait(200)) {",
+                    "        `$ln = `$readTask.Result",
+                    "        `$readTask = `$null",
+                    "        if (`$null -ne `$ln) { `$outSw.WriteLine(`$ln) }",
+                    "    }",
+                    "}",
+                    "if (`$null -ne `$readTask -and `$readTask.Wait(1000)) {",
+                    "    if (`$null -ne `$readTask.Result) { `$outSw.WriteLine(`$readTask.Result) }",
+                    "}",
+                    "while (-not `$proc.StandardOutput.EndOfStream) {",
+                    "    `$ln = `$proc.StandardOutput.ReadLine()",
+                    "    if (`$null -ne `$ln) { `$outSw.WriteLine(`$ln) }",
+                    "}",
+                    "`$proc.WaitForExit()",
+                    "`$outSw.Dispose()",
+                    "`$outFs.Dispose()",
+                    "if (`$errTask.Wait(2000) -and -not [string]::IsNullOrWhiteSpace(`$errTask.Result)) {",
+                    "    [System.IO.File]::WriteAllText('$escErr', `$errTask.Result, [System.Text.Encoding]::UTF8)",
+                    "}",
+                    "[System.IO.File]::WriteAllText('$escExit', [string]`$proc.ExitCode, [System.Text.Encoding]::ASCII)",
+                    "exit `$proc.ExitCode"
+                ) -join "`r`n"
+                [System.IO.File]::WriteAllText($schedWrapperScript, $wrapperLines, [System.Text.Encoding]::UTF8)
+
+                $taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$schedWrapperScript`"" -WorkingDirectory $stepWorkDir
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+                $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -MultipleInstances Parallel
+                [void](Register-ScheduledTask -TaskName $schedTaskName -Action $taskAction -Principal $taskPrincipal -Settings $taskSettings -Force -ErrorAction Stop)
+                Start-ScheduledTask -TaskName $schedTaskName -ErrorAction Stop
+                $usedScheduledTask = $true
+
+                $initMsg = "Launched isolated Session 0 SYSTEM task ($schedTaskName) -> $($psi.FileName) $($psi.Arguments)"
+                $stdOutLines.Add($initMsg)
+                & $appendLiveLogLine $initMsg
+                [PSCustomObject]@{
+                    IsLiveProgress = $true
+                    Line           = "[LIVE] Running in Session 0 (SYSTEM / High Integrity): $([System.IO.Path]::GetFileName($psi.FileName)) $($psi.Arguments)"
+                }
+            } catch {
+                $usedScheduledTask = $false
+                $fallbackMsg = "Session 0 task bridge fallback to direct process: $($_.Exception.Message)"
+                & $appendLiveLogLine $fallbackMsg
+            }
+        }
+
+        if ($usedScheduledTask) {
+            $timer = [System.Diagnostics.Stopwatch]::StartNew()
+            $lastPulse = 0
+            $outOffset = 0L
+
+            $drainTaskOut = {
+                if ([System.IO.File]::Exists($schedOutFile)) {
+                    try {
+                        $fs = [System.IO.File]::Open($schedOutFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                        try {
+                            if ($fs.Length -gt $outOffset) {
+                                [void]$fs.Seek($outOffset, [System.IO.SeekOrigin]::Begin)
+                                $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8, $true)
+                                while (-not $sr.EndOfStream) {
+                                    $line = $sr.ReadLine()
+                                    if ($null -ne $line) {
+                                        $cleanLine = $line.TrimEnd("`r", "`n")
+                                        $stdOutLines.Add($cleanLine)
+                                        & $appendLiveLogLine $cleanLine
+                                        $trimmed = $cleanLine.Trim()
+                                        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                                            [PSCustomObject]@{
+                                                IsLiveProgress = $true
+                                                Line           = $trimmed
+                                            }
+                                        }
+                                    }
+                                }
+                                $script:outOffset = $fs.Position
+                                $outOffset = $fs.Position
+                            }
+                        } finally {
+                            $fs.Dispose()
+                        }
+                    } catch {}
+                }
+            }
+
+            while ($true) {
+                & $drainTaskOut
+                foreach ($vNotice in (& $pollVendorInstallerLogs)) {
+                    $stdOutLines.Add($vNotice)
+                    & $appendLiveLogLine $vNotice
+                    [PSCustomObject]@{
+                        IsLiveProgress = $true
+                        Line           = $vNotice
+                    }
+                }
+
+                if ([System.IO.File]::Exists($schedExitFile)) {
+                    $rawExit = ""
+                    try { $rawExit = [System.IO.File]::ReadAllText($schedExitFile).Trim() } catch {}
+                    if (-not [string]::IsNullOrWhiteSpace($rawExit)) {
+                        $parsedExit = 0
+                        if ([int]::TryParse($rawExit, [ref]$parsedExit)) {
+                            $exitCode = $parsedExit
+                        } else {
+                            $exitCode = 0
+                        }
+                        break
+                    }
+                }
+
+                try {
+                    $tInfo = Get-ScheduledTask -TaskName $schedTaskName -ErrorAction Stop
+                    if ($tInfo.State -ne 'Running' -and $timer.Elapsed.TotalSeconds -gt 2.0) {
+                        Start-Sleep -Milliseconds 300
+                        if ([System.IO.File]::Exists($schedExitFile)) {
+                            $rawExit = [System.IO.File]::ReadAllText($schedExitFile).Trim()
+                            $parsedExit = 0
+                            if ([int]::TryParse($rawExit, [ref]$parsedExit)) { $exitCode = $parsedExit }
+                        } else {
+                            $taskRunInfo = Get-ScheduledTaskInfo -TaskName $schedTaskName -ErrorAction SilentlyContinue
+                            $exitCode = if ($null -ne $taskRunInfo) { [int]$taskRunInfo.LastTaskResult } else { -1 }
+                        }
+                        break
+                    }
+                } catch {
+                    break
+                }
+
+                if ($timer.Elapsed.TotalSeconds - $lastPulse -gt 3.0) {
+                    $lastPulse = [int]$timer.Elapsed.TotalSeconds
+                    if ($StepType -eq 'Installer') {
+                        $pulseText = if (-not [string]::IsNullOrWhiteSpace($lastVendorSummary)) {
+                            "$lastVendorSummary ($([int]$timer.Elapsed.TotalSeconds)s elapsed)"
+                        } else {
+                            "[LIVE] Running payload $([System.IO.Path]::GetFileName($PayloadFileName)) in Session 0 SYSTEM... ($([int]$timer.Elapsed.TotalSeconds)s elapsed)"
+                        }
+                        [PSCustomObject]@{
+                            IsLiveProgress = $true
+                            Line           = $pulseText
+                        }
+                    }
+                }
+                Start-Sleep -Milliseconds 300
+            }
+
+            & $drainTaskOut
+            foreach ($vNotice in (& $pollVendorInstallerLogs)) {
+                $stdOutLines.Add($vNotice)
+                & $appendLiveLogLine $vNotice
+                [PSCustomObject]@{
+                    IsLiveProgress = $true
+                    Line           = $vNotice
+                }
+            }
+            if ([System.IO.File]::Exists($schedErrFile)) {
+                try { $stdErrText = [System.IO.File]::ReadAllText($schedErrFile, [System.Text.Encoding]::UTF8) } catch {}
+            }
+            $stepFinished = $true
+        } else {
+            $process = [System.Diagnostics.Process]::Start($psi)
+            try { $process.StandardInput.Close() } catch {}
+            $errTask = $process.StandardError.ReadToEndAsync()
+
+            $activeReadTask = $null
+            $timer = [System.Diagnostics.Stopwatch]::StartNew()
+            $lastPulse = 0
+
+            while (-not $process.HasExited) {
+                if ($null -eq $activeReadTask) {
+                    $activeReadTask = $process.StandardOutput.ReadLineAsync()
+                }
+                if ($activeReadTask.Wait(200)) {
+                    $line = $activeReadTask.Result
+                    $activeReadTask = $null
+                    if ($null -ne $line) {
+                        $cleanLine = $line.TrimEnd("`r", "`n")
+                        $stdOutLines.Add($cleanLine)
+                        & $appendLiveLogLine $cleanLine
+                        $trimmed = $cleanLine.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                            [PSCustomObject]@{
+                                IsLiveProgress = $true
+                                Line           = $trimmed
+                            }
+                        }
+                    }
+                }
+
+                foreach ($vNotice in (& $pollVendorInstallerLogs)) {
+                    $stdOutLines.Add($vNotice)
+                    & $appendLiveLogLine $vNotice
+                    [PSCustomObject]@{
+                        IsLiveProgress = $true
+                        Line           = $vNotice
+                    }
+                }
+
+                # Periodic status pulse for quiet installers
+                if ($timer.Elapsed.TotalSeconds - $lastPulse -gt 3.0) {
+                    $lastPulse = [int]$timer.Elapsed.TotalSeconds
+                    if ($StepType -eq 'Installer') {
+                        [PSCustomObject]@{
+                            IsLiveProgress = $true
+                            Line           = "Running payload $([System.IO.Path]::GetFileName($PayloadFileName))... ($([int]$timer.Elapsed.TotalSeconds)s elapsed)"
+                        }
+                    }
+                }
+            }
+
+            # Drain any remaining active read task
+            if ($null -ne $activeReadTask) {
+                if ($activeReadTask.Wait(1000)) {
+                    $line = $activeReadTask.Result
+                    if ($null -ne $line) {
+                        $cleanLine = $line.TrimEnd("`r", "`n")
+                        $stdOutLines.Add($cleanLine)
+                        & $appendLiveLogLine $cleanLine
+                        $trimmed = $cleanLine.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                            [PSCustomObject]@{
+                                IsLiveProgress = $true
+                                Line           = $trimmed
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Drain any remaining lines from StandardOutput
+            while (-not $process.StandardOutput.EndOfStream) {
+                $line = $process.StandardOutput.ReadLine()
                 if ($null -ne $line) {
                     $cleanLine = $line.TrimEnd("`r", "`n")
                     $stdOutLines.Add($cleanLine)
+                    & $appendLiveLogLine $cleanLine
                     $trimmed = $cleanLine.Trim()
                     if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
                         [PSCustomObject]@{
@@ -10062,56 +10413,12 @@ exit 0
                 }
             }
 
-            # Periodic status pulse for quiet installers
-            if ($timer.Elapsed.TotalSeconds - $lastPulse -gt 3.0) {
-                $lastPulse = [int]$timer.Elapsed.TotalSeconds
-                if ($StepType -eq 'Installer') {
-                    [PSCustomObject]@{
-                        IsLiveProgress = $true
-                        Line           = "Running payload $([System.IO.Path]::GetFileName($PayloadFileName))... ($([int]$timer.Elapsed.TotalSeconds)s elapsed)"
-                    }
-                }
+            $process.WaitForExit()
+            $exitCode = $process.ExitCode
+            if ($errTask.Wait(2000)) {
+                $stdErrText = $errTask.Result
             }
-        }
-
-        # Drain any remaining active read task
-        if ($null -ne $activeReadTask) {
-            if ($activeReadTask.Wait(1000)) {
-                $line = $activeReadTask.Result
-                if ($null -ne $line) {
-                    $cleanLine = $line.TrimEnd("`r", "`n")
-                    $stdOutLines.Add($cleanLine)
-                    $trimmed = $cleanLine.Trim()
-                    if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                        [PSCustomObject]@{
-                            IsLiveProgress = $true
-                            Line           = $trimmed
-                        }
-                    }
-                }
-            }
-        }
-
-        # Drain any remaining lines from StandardOutput
-        while (-not $process.StandardOutput.EndOfStream) {
-            $line = $process.StandardOutput.ReadLine()
-            if ($null -ne $line) {
-                $cleanLine = $line.TrimEnd("`r", "`n")
-                $stdOutLines.Add($cleanLine)
-                $trimmed = $cleanLine.Trim()
-                if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                    [PSCustomObject]@{
-                        IsLiveProgress = $true
-                        Line           = $trimmed
-                    }
-                }
-            }
-        }
-
-        $process.WaitForExit()
-        $exitCode = $process.ExitCode
-        if ($errTask.Wait(2000)) {
-            $stdErrText = $errTask.Result
+            $stepFinished = $true
         }
 
         # Evaluate configured SuccessCodes (default: 0,1641,3010,2359302 for Installer; 0 for others)
@@ -10170,9 +10477,6 @@ exit 0
 
         # Write remote execution log file in staging directory
         try {
-            $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
-            $logFileName = "{0}_Step{1}_{2}_{3}.log" -f $env:COMPUTERNAME, $StepOrder, $safeName, $timestamp
-            $remoteLogFile = [System.IO.Path]::Combine($targetDir, $logFileName)
             $logContent = New-Object System.Text.StringBuilder
             [void]$logContent.AppendLine("=== PSDeploy Remote Step Execution Log ===")
             [void]$logContent.AppendLine("ComputerName:  $env:COMPUTERNAME")
@@ -10201,17 +10505,33 @@ exit 0
         }
     }
     catch {
+        try {
+            [System.IO.File]::AppendAllText($remoteLogFile, "`r`n[EXCEPTION] $($_.Exception.Message)`r`n", [System.Text.Encoding]::UTF8)
+        } catch {}
         return [PSCustomObject]@{
             IsLiveProgress = $false
             Success        = $false
             ExitCode       = -999
             Message        = "Process invocation exception: $($_.Exception.Message)"
-            LogFile        = $null
+            LogFile        = $remoteLogFile
         }
     }
     finally {
-        if ($tempScript -and [System.IO.File]::Exists($tempScript)) {
-            try { [System.IO.File]::Delete($tempScript) } catch {}
+        if ($schedTaskName) {
+            try {
+                if (-not $stepFinished) {
+                    Stop-ScheduledTask -TaskName $schedTaskName -ErrorAction SilentlyContinue
+                    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$stepWorkDir*" } |
+                        ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+                }
+                Unregister-ScheduledTask -TaskName $schedTaskName -Confirm:$false -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        foreach ($f in @($tempScript, $schedWrapperScript, $schedExitFile, $schedOutFile, $schedErrFile)) {
+            if ($f -and [System.IO.File]::Exists($f)) {
+                try { [System.IO.File]::Delete($f) } catch {}
+            }
         }
     }
 }
@@ -10744,30 +11064,45 @@ function Show-ComputerDeploymentDetails {
     $dlg = [System.Windows.Markup.XamlReader]::Load($rdr)
     $dlg.Owner = $window
 
-    $lblTargetStatus = $dlg.FindName("lblTargetStatus")
-    if ($ComputerRow.Status -eq 'Success') {
-        $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
-    } elseif ($ComputerRow.Status -eq 'Failed') {
-        $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::Tomato
-    } elseif ($ComputerRow.Status -like 'Running*') {
-        $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::Khaki
-    } else {
-        $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::LightGray
-    }
-
-    $dgStepHistory   = $dlg.FindName("dgStepHistory")
-    $txtFullStepLog  = $dlg.FindName("txtFullStepLog")
-    $btnCopyLog      = $dlg.FindName("btnCopyLog")
-    $btnCloseDetails = $dlg.FindName("btnCloseDetails")
+    $lblTargetStatus   = $dlg.FindName("lblTargetStatus")
+    $lblTargetDuration = $dlg.FindName("lblTargetDuration")
+    $lblTargetTime     = $dlg.FindName("lblTargetTime")
+    $dgStepHistory     = $dlg.FindName("dgStepHistory")
+    $txtFullStepLog    = $dlg.FindName("txtFullStepLog")
+    $btnCopyLog        = $dlg.FindName("btnCopyLog")
+    $btnCloseDetails   = $dlg.FindName("btnCloseDetails")
 
     $dgStepHistory.ItemsSource = $ComputerRow.StepHistory
 
-    $updateLogText = {
-        $sel = $dgStepHistory.SelectedItem
-        if ($sel) {
-            $txtFullStepLog.Text = "=== Step $($sel.StepOrder): $($sel.StepName) ($($sel.StepType)) ===`r`nStatus:   $($sel.Status)`r`nDuration: $($sel.Duration)`r`nTime:     $($sel.ExecutedAt)`r`n`r`nDetails / Diagnostic Output:`r`n$($sel.Details)"
+    $applyHeaderState = {
+        $lblTargetStatus.Text   = [string]$ComputerRow.Status
+        $lblTargetDuration.Text = [string]$ComputerRow.Duration
+        $lblTargetTime.Text     = "$($ComputerRow.StartTime) → $($ComputerRow.EndTime)"
+        if ($ComputerRow.Status -eq 'Success') {
+            $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
+        } elseif ($ComputerRow.Status -eq 'Failed') {
+            $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::Tomato
+        } elseif ($ComputerRow.Status -like 'Running*') {
+            $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::Khaki
         } else {
-            $txtFullStepLog.Text = "Target: $($ComputerRow.ComputerName)`r`nStatus: $($ComputerRow.Status)`r`nTotal:  $($ComputerRow.Duration)`r`n`r`nLatest Output:`r`n$($ComputerRow.Details)"
+            $lblTargetStatus.Foreground = [System.Windows.Media.Brushes]::LightGray
+        }
+    }
+
+    $updateLogText = {
+        & $applyHeaderState
+        $sel = $dgStepHistory.SelectedItem
+        if (-not $sel -and $ComputerRow.StepHistory -and $ComputerRow.StepHistory.Count -gt 0) {
+            $dgStepHistory.SelectedIndex = $ComputerRow.StepHistory.Count - 1
+            $sel = $dgStepHistory.SelectedItem
+        }
+        $newLogText = if ($sel) {
+            "=== Step $($sel.StepOrder): $($sel.StepName) ($($sel.StepType)) ===`r`nStatus:   $($sel.Status)`r`nDuration: $($sel.Duration)`r`nTime:     $($sel.ExecutedAt)`r`n`r`nDetails / Diagnostic Output:`r`n$($sel.Details)"
+        } else {
+            "Target: $($ComputerRow.ComputerName)`r`nStatus: $($ComputerRow.Status)`r`nTotal:  $($ComputerRow.Duration)`r`n`r`nLatest Output:`r`n$($ComputerRow.Details)"
+        }
+        if ($txtFullStepLog.Text -ne $newLogText) {
+            $txtFullStepLog.Text = $newLogText
         }
     }
 
@@ -10776,6 +11111,22 @@ function Show-ComputerDeploymentDetails {
         $dgStepHistory.SelectedIndex = 0
     }
     & $updateLogText
+
+    $detailsLiveTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $detailsLiveTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+    $detailsLiveTimer.Add_Tick({
+        try {
+            if ($script:ActiveDeployments -and $script:ActiveDeployments.Count -gt 0) {
+                Process-ActiveDeploymentsTick
+            }
+            $dgStepHistory.Items.Refresh()
+            & $updateLogText
+        } catch {}
+    })
+    $detailsLiveTimer.Start()
+    $dlg.Add_Closed({
+        try { $detailsLiveTimer.Stop() } catch {}
+    })
 
     $btnCopyLog.Add_Click({
         if (-not [string]::IsNullOrWhiteSpace($txtFullStepLog.Text)) {
@@ -11377,6 +11728,7 @@ function Invoke-DeploymentForTargets {
                 $step = $Steps[$i]
                 $stepDesc = "$($step.Order). $($step.Name)"
                 Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Executing step $($step.Order)..."
+                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration "0.0s" -Seconds 0.0 -Details "Starting step $($step.Order) ($($step.Name))..."
                 Send-Log "Target '$Computer': Starting Step $($step.Order) ('$($step.Name)', Type=$($step.Type))..."
 
                 $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -11561,7 +11913,9 @@ function Invoke-DeploymentForTargets {
                             $stageIdx++
                             $stLeaf = [System.IO.Path]::GetFileName($stItem)
                             $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
-                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
+                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
                             Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -Recurse -Force
                         }
                     } else {
@@ -11574,7 +11928,9 @@ function Invoke-DeploymentForTargets {
                             $stageIdx++
                             $stLeaf = [System.IO.Path]::GetFileName($stItem)
                             $pct = [int][Math]::Round(($stageIdx * 100.0) / $totalStageItems)
-                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            $stageMsg = "Staging ($stageIdx/$totalStageItems - $pct%): $stLeaf -> $remoteStepDir"
+                            Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $stageMsg
+                            Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration ("{0:N1}s" -f $sw.Elapsed.TotalSeconds) -Seconds $sw.Elapsed.TotalSeconds -Details $stageMsg
                             Copy-Item -LiteralPath $stItem -Destination $remoteStepDir -ToSession $session -Recurse -Force
                         }
                     }
@@ -11599,6 +11955,7 @@ function Invoke-DeploymentForTargets {
                         ([bool]$step.ShutdownOnly)
                     )
                     $lastLiveLine = ""
+                    $liveStepLines = [System.Collections.Generic.List[string]]::new()
                     $streamItems = [System.Collections.Generic.List[Object]]::new()
                     $lastHeartbeat = 0
                     $lastSecTick = -1
@@ -11633,6 +11990,7 @@ function Invoke-DeploymentForTargets {
                                     $streamItems.Add($item)
                                     if ($item.PSObject.Properties['IsLiveProgress'] -and $item.IsLiveProgress -eq $true) {
                                         $lastLiveLine = $item.Line
+                                        $liveStepLines.Add($item.Line)
                                     }
                                 }
                             }
@@ -11641,7 +11999,9 @@ function Invoke-DeploymentForTargets {
                                 $lastSecTick = $currentSec
                                 $currentDur = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
                                 $currentDetails = if ($lastLiveLine) { $lastLiveLine } else { "Executing step $($step.Order) locally on $Computer... ($currentDur)" }
+                                $liveHistoryBody = if ($liveStepLines.Count -gt 0) { ($liveStepLines -join "`r`n") } else { $currentDetails }
                                 Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $currentDetails -LiveDuration $currentDur
+                                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration $currentDur -Seconds $sw.Elapsed.TotalSeconds -Details $liveHistoryBody
                             }
                             if ($currentSec - $lastHeartbeat -ge 10) {
                                 $lastHeartbeat = $currentSec
@@ -11675,6 +12035,7 @@ function Invoke-DeploymentForTargets {
                                 $streamItems.Add($item)
                                 if ($item.PSObject.Properties['IsLiveProgress'] -and $item.IsLiveProgress -eq $true) {
                                     $lastLiveLine = $item.Line
+                                    $liveStepLines.Add($item.Line)
                                 }
                             }
                             $currentSec = [int]$sw.Elapsed.TotalSeconds
@@ -11682,7 +12043,9 @@ function Invoke-DeploymentForTargets {
                                 $lastSecTick = $currentSec
                                 $currentDur = ("{0:N1}s" -f $sw.Elapsed.TotalSeconds)
                                 $currentDetails = if ($lastLiveLine) { $lastLiveLine } else { "Executing step $($step.Order) on $Computer... ($currentDur)" }
+                                $liveHistoryBody = if ($liveStepLines.Count -gt 0) { ($liveStepLines -join "`r`n") } else { $currentDetails }
                                 Send-RowUpdate -Step $stepDesc -Status "Running..." -Details $currentDetails -LiveDuration $currentDur
+                                Send-StepHistory -StepIndex $i -StepOrder $step.Order -StepName $step.Name -StepType $step.Type -Status "Running..." -Duration $currentDur -Seconds $sw.Elapsed.TotalSeconds -Details $liveHistoryBody
                             }
                             if ($currentSec - $lastHeartbeat -ge 10) {
                                 $lastHeartbeat = $currentSec
