@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.12" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.1" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.12"
+$script:AppVersion      = "1.4.0.1"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -11436,21 +11436,65 @@ $btnClearStatus.Add_Click({
 })
 
 $btnSaveLogs.Add_Click({
-    if ($script:ResultsCollection.Count -eq 0) {
-        [System.Windows.MessageBox]::Show("No status records available to save.", "Save Logs", "OK", "Information")
+    if ($null -eq $dgDeployPackages -or $null -eq $dgDeployPackages.SelectedItem) {
+        [System.Windows.MessageBox]::Show("Please select a deployment task in the Deployment panel first to export its status logs.", "No Deployment Selected", "OK", "Information")
         return
+    }
+
+    $selDeploy = $dgDeployPackages.SelectedItem
+    $selDepId = if ($selDeploy.PSObject.Properties['DeploymentId']) { [string]$selDeploy.DeploymentId } else { "" }
+    $selPkgName = if ($selDeploy.PSObject.Properties['PackageName'] -and -not [string]::IsNullOrWhiteSpace([string]$selDeploy.PackageName)) {
+        ([string]$selDeploy.PackageName).Trim()
+    } else {
+        "Deployment"
+    }
+
+    $targetResults = @()
+    if (-not [string]::IsNullOrWhiteSpace($selDepId)) {
+        $targetResults = @($script:ResultsCollection | Where-Object {
+            $_.PSObject.Properties['DeploymentId'] -and [string]$_.DeploymentId -eq $selDepId
+        })
+    } else {
+        $targetResults = @($script:ResultsCollection | Where-Object {
+            $_.PSObject.Properties['PackageName'] -and [string]$_.PackageName -ieq $selPkgName
+        })
+    }
+
+    if ($targetResults.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("No status records available for the selected deployment task '$selPkgName'.", "Save Logs", "OK", "Information")
+        return
+    }
+
+    $safePkgName = ($selPkgName -replace '[\\/:*?"<>|]', '_').Trim(' ', '.', '_')
+    if ([string]::IsNullOrWhiteSpace($safePkgName)) { $safePkgName = "Deployment" }
+
+    $rawStart = if ($selDeploy.PSObject.Properties['StartTime'] -and -not [string]::IsNullOrWhiteSpace([string]$selDeploy.StartTime)) {
+        ([string]$selDeploy.StartTime).Trim()
+    } elseif ($targetResults[0].PSObject.Properties['StartTime'] -and -not [string]::IsNullOrWhiteSpace([string]$targetResults[0].StartTime)) {
+        ([string]$targetResults[0].StartTime).Trim()
+    } else {
+        ""
+    }
+
+    $parsedStart = [datetime]::MinValue
+    $timeToken = if (-not [string]::IsNullOrWhiteSpace($rawStart) -and [datetime]::TryParse($rawStart, [ref]$parsedStart)) {
+        $parsedStart.ToString('yyyyMMdd_HHmmss')
+    } elseif (-not [string]::IsNullOrWhiteSpace($rawStart)) {
+        ($rawStart -replace '[:\s/\\]+', '-' -replace '[^A-Za-z0-9_\-]', '').Trim('-')
+    } else {
+        (Get-Date).ToString('yyyyMMdd_HHmmss')
     }
 
     $sfd = New-Object System.Windows.Forms.SaveFileDialog
     $sfd.Filter = "CSV Files (*.csv)|*.csv|Log Text Files (*.txt)|*.txt"
-    $sfd.FileName = "DeploymentLogs_$((Get-Date).ToString('yyyyMMdd_HHmmss')).csv"
+    $sfd.FileName = "${safePkgName}_${timeToken}.csv"
     if ($script:LogsDir -and (Test-Path $script:LogsDir)) {
         $sfd.InitialDirectory = $script:LogsDir
     }
     if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         try {
             $exportRows = [System.Collections.Generic.List[PSCustomObject]]::new()
-            foreach ($r in $script:ResultsCollection) {
+            foreach ($r in $targetResults) {
                 if ($r.StepHistory -and $r.StepHistory.Count -gt 0) {
                     foreach ($s in $r.StepHistory) {
                         $exportRows.Add([PSCustomObject]@{
@@ -11458,7 +11502,7 @@ $btnSaveLogs.Add_Click({
                             EndTime         = $r.EndTime
                             Timestamp       = $r.Timestamp
                             ComputerName    = $r.ComputerName
-                            PackageName     = if ($r.PSObject.Properties['PackageName']) { $r.PackageName } else { "" }
+                            PackageName     = if ($r.PSObject.Properties['PackageName']) { $r.PackageName } else { $selPkgName }
                             OverallStatus   = $r.Status
                             OverallDuration = $r.Duration
                             StepNumber      = $s.StepOrder
@@ -11476,7 +11520,7 @@ $btnSaveLogs.Add_Click({
                         EndTime         = $r.EndTime
                         Timestamp       = $r.Timestamp
                         ComputerName    = $r.ComputerName
-                        PackageName     = if ($r.PSObject.Properties['PackageName']) { $r.PackageName } else { "" }
+                        PackageName     = if ($r.PSObject.Properties['PackageName']) { $r.PackageName } else { $selPkgName }
                         OverallStatus   = $r.Status
                         OverallDuration = $r.Duration
                         StepNumber      = "-"
@@ -11490,8 +11534,8 @@ $btnSaveLogs.Add_Click({
                 }
             }
             $exportRows | Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
-            $lblStatus.Text = "Saved status logs to $($sfd.FileName)."
-            [System.Windows.MessageBox]::Show("Status logs saved successfully to:`n$($sfd.FileName)", "Logs Saved", "OK", "Information")
+            $lblStatus.Text = "Saved $($exportRows.Count) log row(s) for '$selPkgName' to $($sfd.FileName)."
+            [System.Windows.MessageBox]::Show("Status logs for '$selPkgName' saved successfully to:`n$($sfd.FileName)", "Logs Saved", "OK", "Information")
         } catch {
             [System.Windows.MessageBox]::Show("Failed to save status logs: $($_.Exception.Message)", "Save Error", "OK", "Error")
         }
