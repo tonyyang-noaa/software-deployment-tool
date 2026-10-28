@@ -1,4 +1,4 @@
-# 🚀 Remote Deployment Console (PSDeploy v1.4.0.14) — Administrator & Visual User Guide
+# 🚀 Remote Deployment Console (PSDeploy v1.4.0.15) — Administrator & Visual User Guide
 
 > **HTML Visual Guide Available:** Open **[Admin_Guide.html](./Admin_Guide.html)** in any web browser for the interactive, dark-themed HTML version of this guide with embedded click-to-zoom screenshots.
 
@@ -6,17 +6,17 @@
 
 ## 1. Application Overview & Workspace Layout
 
-**Remote Deployment Console (ps_deploy.exe / ps_deploy.ps1 — Version 1.4.0.14)** is a 64-bit Windows Presentation Foundation (WPF) administration console for Active Directory computer inventory synchronization, background batched host probing, and parallel multi-step software deployment.
+**Remote Deployment Console (ps_deploy.exe / ps_deploy.ps1 — Version 1.4.0.15)** is a 64-bit Windows Presentation Foundation (WPF) administration console for Active Directory computer inventory synchronization, background batched host probing, and parallel multi-step software deployment.
 
-![Remote Deployment Console v1.4.0.14 Full Workspace Overview](docs/screenshots/01-main-console-v1.4.0.11.png)
+![Remote Deployment Console v1.4.0.15 Full Workspace Overview](docs/screenshots/01-main-console-v1.4.0.11.png)
 
 ---
 
 ## 2. Top Header Bar, Version Subtitle & Global Settings (⚙️ Settings)
 
-Directly beneath the **🚀 Remote Deployment Console** title in the top header bar, the application displays **Version 1.4.0.14** (automatically synchronized during build by `build_exe.ps1`).
+Directly beneath the **🚀 Remote Deployment Console** title in the top header bar, the application displays **Version 1.4.0.15** (automatically synchronized during build by `build_exe.ps1`).
 
-![Top Header Bar with Version 1.4.0.14 Subtitle](docs/screenshots/02-header-bar-version.png)
+![Top Header Bar with Version 1.4.0.15 Subtitle](docs/screenshots/02-header-bar-version.png)
 
 Click **⚙️ Settings** in the top-right corner to configure:
 - **🔑 WinRM Deployment Credentials:** Use current Windows logon credentials or save a dedicated **Domain**, **Username**, and **DPAPI-encrypted Password** (used automatically for both remote deployments and local Session 0 SYSTEM elevation).

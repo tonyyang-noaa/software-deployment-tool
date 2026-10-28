@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.14" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.15" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.14"
+$script:AppVersion      = "1.4.0.15"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -11299,12 +11299,12 @@ function Update-ComputerRow {
 }
 
 function Format-StepDetailsPreview {
-    param([string]$Text, [int]$MaxLength = 180)
+    param([string]$Text, [int]$MaxLength = 0)
     if ([string]::IsNullOrWhiteSpace($Text)) { return "" }
     $nonEmpty = @($Text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($nonEmpty.Count -eq 0) { return "" }
     $joined = $nonEmpty -join " | "
-    if ($joined.Length -gt $MaxLength) {
+    if ($MaxLength -gt 0 -and $joined.Length -gt $MaxLength) {
         return $joined.Substring(0, $MaxLength) + "..."
     }
     return $joined
@@ -11449,7 +11449,14 @@ function Show-ComputerDeploymentDetails {
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90"/>
                 <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="80"/>
                 <DataGridTextColumn Header="Executed At" Binding="{Binding ExecutedAt}" Width="140"/>
-                <DataGridTextColumn Header="Details Preview" Binding="{Binding DetailsPreview}" Width="*"/>
+                <DataGridTextColumn Header="Details Preview" Binding="{Binding DetailsPreview}" Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="{x:Type TextBlock}">
+                            <Setter Property="TextWrapping" Value="Wrap"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
             </DataGrid.Columns>
         </DataGrid>
 
