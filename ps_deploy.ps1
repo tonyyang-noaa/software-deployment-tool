@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.13" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.14" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.13"
+$script:AppVersion      = "1.4.0.14"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -2095,6 +2095,7 @@ function Update-ConfigPaths {
     $script:SettingsDir = $Directory
     $script:SettingsFilePath = Join-Path $script:SettingsDir "settings.json"
     $script:LibraryPath = Join-Path $script:SettingsDir "package_library.json"
+    $script:CustomCannedScriptsFilePath = Join-Path $script:SettingsDir "custom_canned_scripts.json"
     $script:PackagesDir = Join-Path $script:SettingsDir "packages"
     if (-not (Test-Path $script:PackagesDir)) {
         [void][System.IO.Directory]::CreateDirectory($script:PackagesDir)
@@ -4976,11 +4977,63 @@ if (`$certs.Count -eq 0) {
     )
 }
 
+function Load-CustomCannedScripts {
+    $list = [System.Collections.Generic.List[PSCustomObject]]::new()
+    if (-not $script:CustomCannedScriptsFilePath) {
+        $baseDir = if ($script:SettingsDir) { $script:SettingsDir } else { Join-Path $env:LOCALAPPDATA "PSDeploy" }
+        $script:CustomCannedScriptsFilePath = Join-Path $baseDir "custom_canned_scripts.json"
+    }
+    if (Test-Path -LiteralPath $script:CustomCannedScriptsFilePath) {
+        try {
+            $raw = [System.IO.File]::ReadAllText($script:CustomCannedScriptsFilePath, [System.Text.Encoding]::UTF8)
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $parsed = ConvertFrom-Json -InputObject $raw -ErrorAction Stop
+                foreach ($item in @($parsed)) {
+                    if ($null -eq $item -or [string]::IsNullOrWhiteSpace([string]$item.Name)) { continue }
+                    $list.Add([PSCustomObject]@{
+                        Category    = if (-not [string]::IsNullOrWhiteSpace([string]$item.Category)) { ([string]$item.Category).Trim() } else { "Custom Scripts" }
+                        Name        = ([string]$item.Name).Trim()
+                        Type        = if ([string]$item.Type -eq "Batch") { "Batch" } else { "PowerShell" }
+                        Parameters  = if ($null -ne $item.Parameters) { ([string]$item.Parameters).Trim() } else { "" }
+                        Description = if (-not [string]::IsNullOrWhiteSpace([string]$item.Description)) { ([string]$item.Description).Trim() } else { "Custom canned script saved by user." }
+                        Script      = if ($null -ne $item.Script) { [string]$item.Script } else { "" }
+                        IsCustom    = $true
+                    })
+                }
+            }
+        } catch {}
+    }
+    return $list.ToArray()
+}
+
+function Save-CustomCannedScripts {
+    param([array]$CustomItems)
+    if (-not $script:CustomCannedScriptsFilePath) {
+        $baseDir = if ($script:SettingsDir) { $script:SettingsDir } else { Join-Path $env:LOCALAPPDATA "PSDeploy" }
+        $script:CustomCannedScriptsFilePath = Join-Path $baseDir "custom_canned_scripts.json"
+    }
+    $cleanList = @()
+    foreach ($item in @($CustomItems)) {
+        if ($null -eq $item -or [string]::IsNullOrWhiteSpace([string]$item.Name)) { continue }
+        $cleanList += [PSCustomObject]@{
+            Category    = if (-not [string]::IsNullOrWhiteSpace([string]$item.Category)) { ([string]$item.Category).Trim() } else { "Custom Scripts" }
+            Name        = ([string]$item.Name).Trim()
+            Type        = if ([string]$item.Type -eq "Batch") { "Batch" } else { "PowerShell" }
+            Parameters  = if ($null -ne $item.Parameters) { ([string]$item.Parameters).Trim() } else { "" }
+            Description = if (-not [string]::IsNullOrWhiteSpace([string]$item.Description)) { ([string]$item.Description).Trim() } else { "Custom canned script saved by user." }
+            Script      = if ($null -ne $item.Script) { [string]$item.Script } else { "" }
+            IsCustom    = $true
+        }
+    }
+    $json = ConvertTo-Json -InputObject @($cleanList) -Depth 5
+    [System.IO.File]::WriteAllText($script:CustomCannedScriptsFilePath, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 [xml]$cannedScriptsXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="📚 Canned Scripts Library — Windows SysAdmin &amp; IT Troubleshooting" Height="700" Width="1040"
-        MinHeight="560" MinWidth="860"
+        Title="📚 Canned Scripts Library — Windows SysAdmin &amp; IT Troubleshooting" Height="720" Width="1080"
+        MinHeight="580" MinWidth="880"
         WindowStartupLocation="CenterOwner" Background="#1E1E2E" Foreground="#CDD6F4"
         FontFamily="Segoe UI">
     <Window.Resources>
@@ -5020,6 +5073,18 @@ if (`$certs.Count -eq 0) {
                                               Margin="8,3,24,3"
                                               VerticalAlignment="Center" HorizontalAlignment="Left"
                                               TextElement.Foreground="#CDD6F4" TextElement.FontWeight="SemiBold"/>
+                            <TextBox x:Name="PART_EditableTextBox"
+                                     Style="{x:Null}"
+                                     HorizontalAlignment="Stretch"
+                                     VerticalAlignment="Center"
+                                     Margin="6,3,24,3"
+                                     Focusable="True"
+                                     Background="Transparent"
+                                     Foreground="#F5E0DC"
+                                     CaretBrush="#F5E0DC"
+                                     BorderThickness="0"
+                                     Visibility="Hidden"
+                                     IsReadOnly="{TemplateBinding IsReadOnly}"/>
                             <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
                                    AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
                                 <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="260">
@@ -5031,6 +5096,13 @@ if (`$certs.Count -eq 0) {
                                 </Grid>
                             </Popup>
                         </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter Property="IsTabStop" Value="False"/>
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -5091,9 +5163,10 @@ if (`$certs.Count -eq 0) {
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="220"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="130"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Category:" FontWeight="SemiBold" Margin="0,0,8,0"/>
@@ -5108,7 +5181,8 @@ if (`$certs.Count -eq 0) {
 
                 <TextBlock Grid.Column="4" Text="🔍 Search:" FontWeight="SemiBold" Margin="0,0,8,0"/>
                 <TextBox x:Name="txtCannedSearch" Grid.Column="5" Margin="0,0,8,0" ToolTip="Filter by script name, command (e.g. ipconfig, gpupdate, bitlocker, sfc, netstat), or description"/>
-                <Button x:Name="btnCannedClearSearch" Grid.Column="6" Content="Clear" Width="Auto" MinWidth="65" Height="28" Background="#45475A" Foreground="#CDD6F4" ToolTip="Reset category, type, and search filters"/>
+                <Button x:Name="btnCannedClearSearch" Grid.Column="6" Content="Clear" Width="Auto" MinWidth="60" Height="28" Margin="0,0,8,0" Background="#45475A" Foreground="#CDD6F4" ToolTip="Reset category, type, and search filters"/>
+                <Button x:Name="btnCannedNewCustom" Grid.Column="7" Content="＋ New Custom Script" Width="Auto" MinWidth="145" Height="28" Background="#CBA6F7" Foreground="#11111B" FontWeight="Bold" ToolTip="Start a blank custom canned script, select or type a Category and Shell Type, and save it to your Canned Scripts library"/>
             </Grid>
         </Border>
 
@@ -5155,27 +5229,50 @@ if (`$certs.Count -eq 0) {
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="🛠️ Step Preview &amp; Pre-Insert Customization" FontWeight="Bold" Foreground="#F9E2AF" Margin="0,0,0,8"/>
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="🛠️ Step Preview &amp; Custom Canned Script Builder" FontWeight="Bold" Foreground="#F9E2AF"/>
+                        <Button x:Name="btnCannedDeleteCustom" Grid.Column="1" Content="🗑 Delete Custom" Width="Auto" MinWidth="110" Height="26" Margin="0,0,6,0" Background="#F38BA8" Foreground="#11111B" FontWeight="Bold" Visibility="Collapsed" ToolTip="Delete the selected user-created custom script from the Canned Scripts catalog"/>
+                        <Button x:Name="btnCannedSaveCustom" Grid.Column="2" Content="💾 Save to Canned Scripts" Width="Auto" MinWidth="165" Height="26" Background="#F9E2AF" Foreground="#11111B" FontWeight="Bold" ToolTip="Save or update this script into the Canned Scripts catalog under the specified Category and Shell Type"/>
+                    </Grid>
 
-                    <!-- Step Name & Type -->
+                    <!-- Row 1: Step Name -->
                     <Grid Grid.Row="1" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="85"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="105"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Step Name:"/>
-                        <TextBox x:Name="txtCannedName" Grid.Column="1" Margin="0,0,10,0"/>
-                        <TextBlock Grid.Column="2" Text="Type:" Margin="0,0,6,0"/>
-                        <TextBox x:Name="txtCannedTypeBadge" Grid.Column="3" IsReadOnly="True" Background="#11111B" Foreground="#89DCEB" FontWeight="Bold" HorizontalContentAlignment="Center"/>
+                        <TextBox x:Name="txtCannedName" Grid.Column="1" ToolTip="Name of the script step or custom canned script"/>
                     </Grid>
 
-                    <!-- Parameters -->
+                    <!-- Row 2: Category (Editable) & Shell Type -->
                     <Grid Grid.Row="2" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="85"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="130"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Category:"/>
+                        <ComboBox x:Name="cmbCannedEditCategory" Grid.Column="1" IsEditable="True" Margin="0,0,10,0" ToolTip="Select an existing category or type a new category name to save into"/>
+                        <TextBlock Grid.Column="2" Text="Shell Type:" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="cmbCannedEditType" Grid.Column="3" ToolTip="Select the shell type (PowerShell or Batch) for this script">
+                            <ComboBoxItem Content="PowerShell" IsSelected="True"/>
+                            <ComboBoxItem Content="Batch"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <!-- Row 3: Parameters -->
+                    <Grid Grid.Row="3" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="85"/>
                             <ColumnDefinition Width="*"/>
@@ -5184,15 +5281,20 @@ if (`$certs.Count -eq 0) {
                         <TextBox x:Name="txtCannedParams" Grid.Column="1" ToolTip="Optional arguments passed to the script during remote execution"/>
                     </Grid>
 
-                    <!-- Description Box -->
-                    <Border Grid.Row="3" Background="#11111B" BorderBrush="#313244" BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
-                        <TextBlock x:Name="txtCannedDesc" Text="Select a canned script on the left to inspect its description and code." Foreground="#A6ADC8" TextWrapping="Wrap" FontSize="11.5"/>
-                    </Border>
+                    <!-- Row 4: Description (Editable) -->
+                    <Grid Grid.Row="4" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="85"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Description:"/>
+                        <TextBox x:Name="txtCannedDesc" Grid.Column="1" ToolTip="Brief description of what this script does and any prerequisites"/>
+                    </Grid>
 
-                    <TextBlock Grid.Row="4" Text="Script Content (Editable before adding to package):" Foreground="#A6ADC8" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="5" Text="Script Content (Editable before saving to Canned Scripts or adding to package):" Foreground="#A6ADC8" Margin="0,0,0,4"/>
 
-                    <!-- Multiline Script TextBox (LL-005 Compliant) -->
-                    <TextBox x:Name="txtCannedScript" Grid.Row="5" Background="#313244" Foreground="#F5E0DC" BorderBrush="#45475A"
+                    <!-- Row 6: Multiline Script TextBox (LL-005 Compliant) -->
+                    <TextBox x:Name="txtCannedScript" Grid.Row="6" Background="#313244" Foreground="#F5E0DC" BorderBrush="#45475A"
                              FontFamily="Consolas" FontSize="12" AcceptsReturn="True" AcceptsTab="True"
                              Height="Auto" MinHeight="220" VerticalAlignment="Stretch" VerticalContentAlignment="Top" Padding="8,6"
                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
@@ -5224,40 +5326,104 @@ function Show-CannedScriptsDialog {
     $dlg = [System.Windows.Markup.XamlReader]::Load($rdr)
     $dlg.Owner = $window
 
-    $cmbCannedCategory   = $dlg.FindName("cmbCannedCategory")
-    $cmbCannedType       = $dlg.FindName("cmbCannedType")
-    $txtCannedSearch     = $dlg.FindName("txtCannedSearch")
-    $btnCannedClearSearch= $dlg.FindName("btnCannedClearSearch")
-    $dgCannedScripts     = $dlg.FindName("dgCannedScripts")
-    $txtCannedName       = $dlg.FindName("txtCannedName")
-    $txtCannedTypeBadge  = $dlg.FindName("txtCannedTypeBadge")
-    $txtCannedParams     = $dlg.FindName("txtCannedParams")
-    $txtCannedDesc       = $dlg.FindName("txtCannedDesc")
-    $txtCannedScript     = $dlg.FindName("txtCannedScript")
-    $lblCannedCount      = $dlg.FindName("lblCannedCount")
-    $btnCannedOpenEditor = $dlg.FindName("btnCannedOpenEditor")
-    $btnCannedAddStay    = $dlg.FindName("btnCannedAddStay")
-    $btnCannedAddClose   = $dlg.FindName("btnCannedAddClose")
-    $btnCannedClose      = $dlg.FindName("btnCannedClose")
+    $cmbCannedCategory     = $dlg.FindName("cmbCannedCategory")
+    $cmbCannedType         = $dlg.FindName("cmbCannedType")
+    $txtCannedSearch       = $dlg.FindName("txtCannedSearch")
+    $btnCannedClearSearch  = $dlg.FindName("btnCannedClearSearch")
+    $btnCannedNewCustom    = $dlg.FindName("btnCannedNewCustom")
+    $dgCannedScripts       = $dlg.FindName("dgCannedScripts")
+    $txtCannedName         = $dlg.FindName("txtCannedName")
+    $cmbCannedEditCategory = $dlg.FindName("cmbCannedEditCategory")
+    $cmbCannedEditType     = $dlg.FindName("cmbCannedEditType")
+    $txtCannedParams       = $dlg.FindName("txtCannedParams")
+    $txtCannedDesc         = $dlg.FindName("txtCannedDesc")
+    $txtCannedScript       = $dlg.FindName("txtCannedScript")
+    $btnCannedSaveCustom   = $dlg.FindName("btnCannedSaveCustom")
+    $btnCannedDeleteCustom = $dlg.FindName("btnCannedDeleteCustom")
+    $lblCannedCount        = $dlg.FindName("lblCannedCount")
+    $btnCannedOpenEditor   = $dlg.FindName("btnCannedOpenEditor")
+    $btnCannedAddStay      = $dlg.FindName("btnCannedAddStay")
+    $btnCannedAddClose     = $dlg.FindName("btnCannedAddClose")
+    $btnCannedClose        = $dlg.FindName("btnCannedClose")
 
-    $allCatalog = @(Get-CannedScriptsCatalog)
+    $builtInCatalog = @(Get-CannedScriptsCatalog | ForEach-Object {
+        if (-not $_.PSObject.Properties['IsCustom']) {
+            $_ | Add-Member -NotePropertyName IsCustom -NotePropertyValue $false -Force
+        }
+        $_
+    })
+    $customCatalog = [System.Collections.Generic.List[PSCustomObject]]::new()
+    foreach ($ci in @(Load-CustomCannedScripts)) {
+        $customCatalog.Add($ci)
+    }
+
+    $allCatalog = @($builtInCatalog) + @($customCatalog)
     $filteredCatalog = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
     $dgCannedScripts.ItemsSource = $filteredCatalog
 
-    # Populate Categories ComboBox
-    $allCatItem = New-Object System.Windows.Controls.ComboBoxItem
-    $allCatItem.Content = "All Categories"
-    $allCatItem.IsSelected = $true
-    [void]$cmbCannedCategory.Items.Add($allCatItem)
+    $refreshCategoryDropdowns = {
+        param([string]$PreserveFilterCategory = "")
+        $curFilterCat = if (-not [string]::IsNullOrWhiteSpace($PreserveFilterCategory)) {
+            $PreserveFilterCategory
+        } elseif ($cmbCannedCategory.SelectedItem -and $cmbCannedCategory.SelectedItem.Content) {
+            [string]$cmbCannedCategory.SelectedItem.Content
+        } else {
+            "All Categories"
+        }
+        $curEditCat = if ($cmbCannedEditCategory.Text) { $cmbCannedEditCategory.Text.Trim() } else { "" }
 
-    $categories = @($allCatalog | Select-Object -ExpandProperty Category -Unique)
-    foreach ($cat in $categories) {
-        $ci = New-Object System.Windows.Controls.ComboBoxItem
-        $ci.Content = $cat
-        [void]$cmbCannedCategory.Items.Add($ci)
+        $cmbCannedCategory.Items.Clear()
+        $allCatItem = New-Object System.Windows.Controls.ComboBoxItem
+        $allCatItem.Content = "All Categories"
+        [void]$cmbCannedCategory.Items.Add($allCatItem)
+
+        $cmbCannedEditCategory.Items.Clear()
+        $categories = @($allCatalog | Select-Object -ExpandProperty Category -Unique)
+        if ($categories -notcontains "Custom Scripts") {
+            $categories += "Custom Scripts"
+        }
+        $selectedFilterIdx = 0
+        $idx = 1
+        foreach ($cat in $categories) {
+            $ci = New-Object System.Windows.Controls.ComboBoxItem
+            $ci.Content = $cat
+            [void]$cmbCannedCategory.Items.Add($ci)
+            if ($cat -ieq $curFilterCat) { $selectedFilterIdx = $idx }
+            $idx++
+
+            $eci = New-Object System.Windows.Controls.ComboBoxItem
+            $eci.Content = $cat
+            [void]$cmbCannedEditCategory.Items.Add($eci)
+        }
+        $cmbCannedCategory.SelectedIndex = $selectedFilterIdx
+        if (-not [string]::IsNullOrWhiteSpace($curEditCat)) {
+            $cmbCannedEditCategory.Text = $curEditCat
+        }
     }
 
+    $getSelectedEditShellType = {
+        if ($cmbCannedEditType.SelectedItem -and $cmbCannedEditType.SelectedItem.Content) {
+            return ([string]$cmbCannedEditType.SelectedItem.Content).Trim()
+        }
+        return "PowerShell"
+    }
+
+    $setSelectedEditShellType = {
+        param([string]$ShellType)
+        $target = if ($ShellType -eq "Batch") { "Batch" } else { "PowerShell" }
+        for ($i = 0; $i -lt $cmbCannedEditType.Items.Count; $i++) {
+            if ([string]$cmbCannedEditType.Items[$i].Content -ieq $target) {
+                $cmbCannedEditType.SelectedIndex = $i
+                break
+            }
+        }
+    }
+
+    & $refreshCategoryDropdowns "All Categories"
+
+    $suppressFilterSelection = $false
     $updateFilter = {
+        if ($suppressFilterSelection) { return }
         $selCatObj  = $cmbCannedCategory.SelectedItem
         $selCat     = if ($selCatObj -and $selCatObj.Content) { [string]$selCatObj.Content } else { "All Categories" }
         $selTypeObj = $cmbCannedType.SelectedItem
@@ -5278,26 +5444,34 @@ function Show-CannedScriptsDialog {
             [void]$filteredCatalog.Add($item)
         }
 
-        $lblCannedCount.Text = "Showing $($filteredCatalog.Count) of $($allCatalog.Count) canned scripts"
+        $customCount = @($customCatalog).Count
+        $lblCannedCount.Text = "Showing $($filteredCatalog.Count) of $($allCatalog.Count) canned scripts ($customCount custom)"
         if ($filteredCatalog.Count -gt 0) {
             $dgCannedScripts.SelectedIndex = 0
         } else {
-            $txtCannedName.Text      = ""
-            $txtCannedTypeBadge.Text = ""
-            $txtCannedParams.Text    = ""
-            $txtCannedDesc.Text      = "No canned scripts match the current filter."
-            $txtCannedScript.Text    = ""
+            $txtCannedName.Text          = ""
+            $cmbCannedEditCategory.Text  = if ($selCat -ne "All Categories") { $selCat } else { "Custom Scripts" }
+            & $setSelectedEditShellType "PowerShell"
+            $txtCannedParams.Text        = ""
+            $txtCannedDesc.Text          = ""
+            $txtCannedScript.Text        = ""
+            $btnCannedDeleteCustom.Visibility = [System.Windows.Visibility]::Collapsed
         }
     }
 
     $dgCannedScripts.Add_SelectionChanged({
         $sel = $dgCannedScripts.SelectedItem
         if ($sel) {
-            $txtCannedName.Text      = $sel.Name
-            $txtCannedTypeBadge.Text = $sel.Type
-            $txtCannedParams.Text    = $sel.Parameters
-            $txtCannedDesc.Text      = "[$($sel.Category)] $($sel.Description)"
-            $txtCannedScript.Text    = $sel.Script
+            $txtCannedName.Text         = $sel.Name
+            $cmbCannedEditCategory.Text = $sel.Category
+            & $setSelectedEditShellType $sel.Type
+            $txtCannedParams.Text       = $sel.Parameters
+            $txtCannedDesc.Text         = $sel.Description
+            $txtCannedScript.Text       = $sel.Script
+            $isCust = ($sel.PSObject.Properties['IsCustom'] -and $sel.IsCustom -eq $true)
+            $btnCannedDeleteCustom.Visibility = if ($isCust) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }
+        } else {
+            $btnCannedDeleteCustom.Visibility = [System.Windows.Visibility]::Collapsed
         }
     })
 
@@ -5310,6 +5484,135 @@ function Show-CannedScriptsDialog {
         $cmbCannedType.SelectedIndex     = 0
         $txtCannedSearch.Text            = ""
         & $updateFilter
+    })
+
+    $btnCannedNewCustom.Add_Click({
+        $dgCannedScripts.SelectedItem = $null
+        $btnCannedDeleteCustom.Visibility = [System.Windows.Visibility]::Collapsed
+
+        $selCatObj = $cmbCannedCategory.SelectedItem
+        $defaultCat = if ($selCatObj -and $selCatObj.Content -and [string]$selCatObj.Content -ne "All Categories") {
+            [string]$selCatObj.Content
+        } else {
+            "Custom Scripts"
+        }
+        $selTypeObj = $cmbCannedType.SelectedItem
+        $defaultType = if ($selTypeObj -and $selTypeObj.Content -and [string]$selTypeObj.Content -in @("PowerShell", "Batch")) {
+            [string]$selTypeObj.Content
+        } else {
+            "PowerShell"
+        }
+
+        $txtCannedName.Text         = ""
+        $cmbCannedEditCategory.Text = $defaultCat
+        & $setSelectedEditShellType $defaultType
+        $txtCannedParams.Text       = ""
+        $txtCannedDesc.Text         = ""
+        if ($defaultType -eq "Batch") {
+            $txtCannedScript.Text = "@echo off`r`nREM Enter custom Batch commands below`r`n`r`nexit /b 0"
+        } else {
+            $txtCannedScript.Text = "# Enter custom PowerShell script below`r`n"
+        }
+        $lblCannedCount.Text = "Creating new custom script — enter Step Name, Category, Shell Type, and Script Content, then click '💾 Save to Canned Scripts'."
+        [void]$txtCannedName.Focus()
+    })
+
+    $btnCannedSaveCustom.Add_Click({
+        $nameVal = if ($txtCannedName.Text) { $txtCannedName.Text.Trim() } else { "" }
+        $catVal  = if ($cmbCannedEditCategory.Text) { $cmbCannedEditCategory.Text.Trim() } else { "" }
+        if ([string]::IsNullOrWhiteSpace($catVal) -or $catVal -ieq "All Categories") {
+            $catVal = "Custom Scripts"
+        }
+        $typeVal   = & $getSelectedEditShellType
+        $paramsVal = if ($txtCannedParams.Text) { $txtCannedParams.Text.Trim() } else { "" }
+        $descVal   = if ($txtCannedDesc.Text) { $txtCannedDesc.Text.Trim() } else { "Custom canned script saved by user." }
+        $scriptVal = if ($txtCannedScript.Text) { $txtCannedScript.Text } else { "" }
+
+        if ([string]::IsNullOrWhiteSpace($nameVal)) {
+            [System.Windows.MessageBox]::Show("Please enter a Step Name for the custom canned script.", "Save Custom Canned Script", "OK", "Warning")
+            [void]$txtCannedName.Focus()
+            return
+        }
+        if ([string]::IsNullOrWhiteSpace($scriptVal)) {
+            [System.Windows.MessageBox]::Show("Please enter script content before saving to the Canned Scripts library.", "Save Custom Canned Script", "OK", "Warning")
+            [void]$txtCannedScript.Focus()
+            return
+        }
+
+        $existingIdx = -1
+        for ($i = 0; $i -lt $customCatalog.Count; $i++) {
+            if ($customCatalog[$i].Name -ieq $nameVal) {
+                $existingIdx = $i
+                break
+            }
+        }
+
+        $savedEntry = [PSCustomObject]@{
+            Category    = $catVal
+            Name        = $nameVal
+            Type        = $typeVal
+            Parameters  = $paramsVal
+            Description = $descVal
+            Script      = $scriptVal
+            IsCustom    = $true
+        }
+
+        if ($existingIdx -ge 0) {
+            $customCatalog[$existingIdx] = $savedEntry
+        } else {
+            $customCatalog.Add($savedEntry)
+        }
+
+        Save-CustomCannedScripts -CustomItems $customCatalog.ToArray()
+        $allCatalog = @($builtInCatalog) + @($customCatalog)
+
+        $suppressFilterSelection = $true
+        try {
+            & $refreshCategoryDropdowns "All Categories"
+            $cmbCannedType.SelectedIndex = 0
+            $txtCannedSearch.Text = ""
+        } finally {
+            $suppressFilterSelection = $false
+        }
+        & $updateFilter
+
+        foreach ($row in $filteredCatalog) {
+            if ($row.Name -ieq $nameVal -and $row.Category -ieq $catVal) {
+                $dgCannedScripts.SelectedItem = $row
+                $dgCannedScripts.ScrollIntoView($row)
+                break
+            }
+        }
+
+        $lblCannedCount.Text = "Saved custom canned script '$nameVal' under category '$catVal' ($typeVal)."
+        [System.Windows.MessageBox]::Show("Custom script '$nameVal' saved to Canned Scripts library!`n`nCategory: $catVal`nShell Type: $typeVal", "Custom Script Saved", "OK", "Information")
+    })
+
+    $btnCannedDeleteCustom.Add_Click({
+        $sel = $dgCannedScripts.SelectedItem
+        if (-not $sel -or -not ($sel.PSObject.Properties['IsCustom'] -and $sel.IsCustom -eq $true)) {
+            [System.Windows.MessageBox]::Show("Only user-created custom scripts can be deleted from the Canned Scripts catalog.", "Delete Custom Script", "OK", "Information")
+            return
+        }
+        $ans = [System.Windows.MessageBox]::Show("Remove custom canned script '$($sel.Name)' from category '$($sel.Category)'?", "Confirm Delete Custom Script", "YesNo", "Question")
+        if ($ans -ne [System.Windows.MessageBoxResult]::Yes) { return }
+
+        for ($i = $customCatalog.Count - 1; $i -ge 0; $i--) {
+            if ($customCatalog[$i].Name -ieq $sel.Name -and $customCatalog[$i].Category -ieq $sel.Category) {
+                $customCatalog.RemoveAt($i)
+            }
+        }
+        Save-CustomCannedScripts -CustomItems $customCatalog.ToArray()
+        $allCatalog = @($builtInCatalog) + @($customCatalog)
+
+        $suppressFilterSelection = $true
+        try {
+            & $refreshCategoryDropdowns "All Categories"
+        } finally {
+            $suppressFilterSelection = $false
+        }
+        & $updateFilter
+        $lblCannedCount.Text = "Deleted custom script '$($sel.Name)'."
     })
 
     $addCurrentSelectionToPackage = {
@@ -5338,10 +5641,10 @@ function Show-CannedScriptsDialog {
         }
 
         if ([string]::IsNullOrWhiteSpace($txtCannedName.Text) -or [string]::IsNullOrWhiteSpace($txtCannedScript.Text)) {
-            [System.Windows.MessageBox]::Show("Please select a canned script with a valid name and script body.", "Canned Scripts", "OK", "Warning")
+            [System.Windows.MessageBox]::Show("Please select or enter a canned script with a valid Step Name and Script Content.", "Canned Scripts", "OK", "Warning")
             return
         }
-        $stepType = if ($txtCannedTypeBadge.Text -eq "Batch") { "Batch" } else { "PowerShell" }
+        $stepType = & $getSelectedEditShellType
         $newStep = New-StepObject -Name $txtCannedName.Text.Trim() `
                                   -Type $stepType `
                                   -Script $txtCannedScript.Text `
@@ -5376,7 +5679,7 @@ function Show-CannedScriptsDialog {
 
     $btnCannedOpenEditor.Add_Click({
         if ([string]::IsNullOrWhiteSpace($txtCannedName.Text)) { return }
-        $stepType = if ($txtCannedTypeBadge.Text -eq "Batch") { "Batch" } else { "PowerShell" }
+        $stepType = & $getSelectedEditShellType
         $tempStep = New-StepObject -Name $txtCannedName.Text.Trim() `
                                    -Type $stepType `
                                    -Script $txtCannedScript.Text `

@@ -1,6 +1,6 @@
-# Remote Deployment Console (`ps_deploy.exe` / `ps_deploy.ps1` — Version 1.4.0.13)
+# Remote Deployment Console (`ps_deploy.exe` / `ps_deploy.ps1` — Version 1.4.0.14)
 
-A lightweight, standalone Windows GUI utility (**Version 1.4.0.13**) designed for system administrators to build, manage, and deploy multi-step deployment packages (PowerShell scripts, Command-Line Batch files, and Software Installers) to remote Active Directory domain-joined computers.
+A lightweight, standalone Windows GUI utility (**Version 1.4.0.14**) designed for system administrators to build, manage, and deploy multi-step deployment packages (PowerShell scripts, Command-Line Batch files, and Software Installers) to remote Active Directory domain-joined computers.
 
 ---
 
