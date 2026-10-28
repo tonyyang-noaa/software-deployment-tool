@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.1" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.13" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.1"
+$script:AppVersion      = "1.4.0.13"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
