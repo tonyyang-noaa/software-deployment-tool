@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.16" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.17" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.16"
+$script:AppVersion      = "1.4.0.17"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -1159,18 +1159,24 @@ $btnSettings            = $window.FindName("btnSettings")
             </ComboBox>
         </WrapPanel>
         <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="btnAddInstaller" Content="📦 Install" Background="#CBA6F7" Padding="9,5" Margin="0,0,5,4" ToolTip="Add an Install step (.bat, .cmd, .msi, .exe, .msp, .msu, .ps1) with entire directory or additional files staging"/>
-            <Button x:Name="btnAddBatch" Content="⌨ Command" Background="#FAB387" Padding="9,5" Margin="0,0,5,4" ToolTip="Add a Windows Command / Batch (.bat / .cmd) step with optional companion files"/>
-            <Button x:Name="btnAddScript" Content="⚡ PowerShell" Background="#89B4FA" Padding="9,5" Margin="0,0,5,4" ToolTip="Add a PowerShell script step with optional companion files"/>
-            <Button x:Name="btnAddFileCopy" Content="📁 File Copy" Background="#74C7EC" Padding="9,5" Margin="0,0,5,4" ToolTip="Copy files or an entire folder to a target directory on the remote computer"/>
-            <Button x:Name="btnAddReboot" Content="🔄 Reboot" Background="#F5C2E7" Padding="9,5" Margin="0,0,5,4" ToolTip="Reboot or shut down the remote computer with configurable delay and message"/>
-            <Button x:Name="btnAddPause" Content="⏱ Sleep" Background="#94E2D5" Padding="9,5" Margin="0,0,5,4" ToolTip="Insert a timed Sleep / Pause delay step (seconds)"/>
-            <Button x:Name="btnAddMessage" Content="💬 Message" Background="#B4BEFE" Padding="9,5" Margin="0,0,5,4" ToolTip="Display an interactive popup message to logged-on users on the remote computer"/>
-            <Button x:Name="btnAddLogoff" Content="🚪 Logoff" Background="#EBA0AC" Padding="9,5" Margin="0,0,5,4" ToolTip="Log off active interactive user sessions on the remote computer"/>
-            <Button x:Name="btnCannedScripts" Content="📚 Canned-Scripts" Background="#F9E2AF" Padding="9,5" Margin="0,0,5,4" ToolTip="Browse pre-built Windows SysAdmin &amp; IT Troubleshooting PowerShell &amp; Batch scripts"/>
-            <Button x:Name="btnClearSteps" Content="🧹 Clear Steps" Background="#F38BA8" Padding="9,5" Margin="0,0,0,4" ToolTip="Remove all steps from the current package"/>
+            <TextBlock Text="Step Type:" FontWeight="SemiBold" Margin="0,0,6,4"/>
+            <ComboBox x:Name="cmbNewStepType" Width="215" Height="28" Margin="0,0,6,4" ToolTip="Select the type of deployment step to add">
+                <ComboBoxItem Tag="Installer" Content="📦 Install" IsSelected="True"/>
+                <ComboBoxItem Tag="Batch" Content="⌨ Command"/>
+                <ComboBoxItem Tag="PowerShell" Content="⚡ PowerShell"/>
+                <ComboBoxItem Tag="FileCopy" Content="📁 File Copy"/>
+                <ComboBoxItem Tag="Reboot" Content="🔄 Reboot"/>
+                <ComboBoxItem Tag="Pause" Content="⏱ Sleep"/>
+                <ComboBoxItem Tag="Message" Content="💬 Message"/>
+                <ComboBoxItem Tag="Logoff" Content="🚪 Logoff"/>
+            </ComboBox>
+            <Button x:Name="btnAddSelectedStep" Content="＋ Add Step" Height="28" Background="#A6E3A1" Foreground="#11111B" FontWeight="Bold" Padding="11,4" Margin="0,0,10,4" ToolTip="Open the Step Editor to configure and add the selected step type to this package"/>
+            <Button x:Name="btnMoveStepUp" Content="⬆ Move Up" Height="28" Background="#89B4FA" Foreground="#11111B" Padding="10,4" Margin="0,0,5,4" ToolTip="Move the selected step up in execution order"/>
+            <Button x:Name="btnMoveStepDown" Content="⬇ Move Down" Height="28" Background="#89B4FA" Foreground="#11111B" Padding="10,4" Margin="0,0,10,4" ToolTip="Move the selected step down in execution order"/>
+            <Button x:Name="btnCannedScripts" Content="📚 Canned-Scripts" Height="28" Background="#F9E2AF" Foreground="#11111B" Padding="10,4" Margin="0,0,5,4" ToolTip="Browse pre-built Windows SysAdmin &amp; IT Troubleshooting PowerShell &amp; Batch scripts"/>
+            <Button x:Name="btnClearSteps" Content="🧹 Clear Steps" Height="28" Background="#F38BA8" Foreground="#11111B" Padding="10,4" Margin="0,0,0,4" ToolTip="Remove all steps from the current package"/>
         </WrapPanel>
-        <DataGrid x:Name="dgSteps" Grid.Row="3" AutoGenerateColumns="False" CanUserAddRows="False"
+        <DataGrid x:Name="dgSteps" Grid.Row="3" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="False"
                   SelectionMode="Single" IsReadOnly="True" RowHeight="28">
             <DataGrid.ContextMenu>
                 <ContextMenu>
@@ -1237,15 +1243,11 @@ $txtPkgName             = $script:PkgStepsModalWindow.FindName("txtPkgName")
 $txtPkgFolder           = $script:PkgStepsModalWindow.FindName("txtPkgFolder")
 $btnSaveToLibrary       = $script:PkgStepsModalWindow.FindName("btnSaveToLibrary")
 
-$btnAddScript           = $script:PkgStepsModalWindow.FindName("btnAddScript")
-$btnAddBatch            = $script:PkgStepsModalWindow.FindName("btnAddBatch")
+$cmbNewStepType         = $script:PkgStepsModalWindow.FindName("cmbNewStepType")
+$btnAddSelectedStep     = $script:PkgStepsModalWindow.FindName("btnAddSelectedStep")
+$btnMoveStepUp          = $script:PkgStepsModalWindow.FindName("btnMoveStepUp")
+$btnMoveStepDown        = $script:PkgStepsModalWindow.FindName("btnMoveStepDown")
 $btnCannedScripts       = $script:PkgStepsModalWindow.FindName("btnCannedScripts")
-$btnAddInstaller        = $script:PkgStepsModalWindow.FindName("btnAddInstaller")
-$btnAddFileCopy         = $script:PkgStepsModalWindow.FindName("btnAddFileCopy")
-$btnAddReboot           = $script:PkgStepsModalWindow.FindName("btnAddReboot")
-$btnAddPause            = $script:PkgStepsModalWindow.FindName("btnAddPause")
-$btnAddMessage          = $script:PkgStepsModalWindow.FindName("btnAddMessage")
-$btnAddLogoff           = $script:PkgStepsModalWindow.FindName("btnAddLogoff")
 $btnClearSteps          = $script:PkgStepsModalWindow.FindName("btnClearSteps")
 $dgSteps                = $script:PkgStepsModalWindow.FindName("dgSteps")
 $btnCloseStepsModal     = $script:PkgStepsModalWindow.FindName("btnCloseStepsModal")
@@ -4061,101 +4063,99 @@ function Clear-AllSteps {
     }
 }
 
-function Move-StepUp {
+function Clear-StepsGridSorting {
+    if (-not $dgSteps) { return }
+    try {
+        $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($dgSteps.ItemsSource)
+        if ($view -and $view.SortDescriptions.Count -gt 0) {
+            $view.SortDescriptions.Clear()
+        }
+        foreach ($col in $dgSteps.Columns) {
+            $col.SortDirection = $null
+        }
+    } catch {}
+}
+
+function Get-SelectedStepIndex {
+    if (-not $dgSteps -or -not $script:StepsCollection -or $script:StepsCollection.Count -eq 0) { return -1 }
     $sel = $dgSteps.SelectedItem
-    if (-not $sel) { return }
-    $idx = $script:StepsCollection.IndexOf($sel)
+    if ($null -ne $sel) {
+        for ($i = 0; $i -lt $script:StepsCollection.Count; $i++) {
+            if ([object]::ReferenceEquals($script:StepsCollection[$i], $sel)) {
+                return $i
+            }
+        }
+        $idx = $script:StepsCollection.IndexOf($sel)
+        if ($idx -ge 0) { return $idx }
+    }
+    if ($dgSteps.SelectedIndex -ge 0 -and $dgSteps.SelectedIndex -lt $script:StepsCollection.Count) {
+        return [int]$dgSteps.SelectedIndex
+    }
+    return -1
+}
+
+function Move-StepUp {
+    if (-not $script:StepsCollection -or $script:StepsCollection.Count -eq 0) { return }
+    Clear-StepsGridSorting
+    $idx = Get-SelectedStepIndex
+    if ($idx -lt 0) {
+        [System.Windows.MessageBox]::Show("Please select a step in the list to move up.", "Move Step Up", "OK", "Information")
+        return
+    }
     if ($idx -gt 0) {
-        $script:StepsCollection.RemoveAt($idx)
-        $script:StepsCollection.Insert($idx - 1, $sel)
+        $item = $script:StepsCollection[$idx]
+        $script:StepsCollection.Move($idx, $idx - 1)
         Renumber-Steps
+        $dgSteps.SelectedItem = $item
         $dgSteps.SelectedIndex = $idx - 1
+        $dgSteps.ScrollIntoView($item)
+        [void]$dgSteps.Focus()
     }
 }
 
 function Move-StepDown {
-    $sel = $dgSteps.SelectedItem
-    if (-not $sel) { return }
-    $idx = $script:StepsCollection.IndexOf($sel)
-    if ($idx -ge 0 -and $idx -lt $script:StepsCollection.Count - 1) {
-        $script:StepsCollection.RemoveAt($idx)
-        $script:StepsCollection.Insert($idx + 1, $sel)
+    if (-not $script:StepsCollection -or $script:StepsCollection.Count -eq 0) { return }
+    Clear-StepsGridSorting
+    $idx = Get-SelectedStepIndex
+    if ($idx -lt 0) {
+        [System.Windows.MessageBox]::Show("Please select a step in the list to move down.", "Move Step Down", "OK", "Information")
+        return
+    }
+    if ($idx -ge 0 -and $idx -lt ($script:StepsCollection.Count - 1)) {
+        $item = $script:StepsCollection[$idx]
+        $script:StepsCollection.Move($idx, $idx + 1)
         Renumber-Steps
+        $dgSteps.SelectedItem = $item
         $dgSteps.SelectedIndex = $idx + 1
+        $dgSteps.ScrollIntoView($item)
+        [void]$dgSteps.Focus()
     }
 }
 
-# Wire Step Creation & Editing Events
-$btnAddScript.Add_Click({
-    $s = Show-StepEditor -DefaultType "PowerShell"
-    if ($s) {
-        $script:StepsCollection.Add($s)
-        Renumber-Steps
-    }
-})
-
-$btnAddBatch.Add_Click({
-    $s = Show-StepEditor -DefaultType "Batch"
-    if ($s) {
-        $script:StepsCollection.Add($s)
-        Renumber-Steps
-    }
-})
-
-$btnAddInstaller.Add_Click({
-    $s = Show-StepEditor -DefaultType "Installer"
-    if ($s) {
-        $script:StepsCollection.Add($s)
-        Renumber-Steps
-    }
-})
-
-if ($btnAddFileCopy) {
-    $btnAddFileCopy.Add_Click({
-        $s = Show-StepEditor -DefaultType "FileCopy"
+# Wire Step Creation, Reordering & Editing Events
+if ($btnAddSelectedStep) {
+    $btnAddSelectedStep.Add_Click({
+        $selectedType = "Installer"
+        if ($cmbNewStepType -and $cmbNewStepType.SelectedItem -and $cmbNewStepType.SelectedItem.Tag) {
+            $selectedType = [string]$cmbNewStepType.SelectedItem.Tag
+        }
+        $s = Show-StepEditor -DefaultType $selectedType
         if ($s) {
+            Clear-StepsGridSorting
             $script:StepsCollection.Add($s)
             Renumber-Steps
+            $dgSteps.SelectedItem = $s
+            $dgSteps.ScrollIntoView($s)
         }
     })
 }
 
-if ($btnAddReboot) {
-    $btnAddReboot.Add_Click({
-        $s = Show-StepEditor -DefaultType "Reboot"
-        if ($s) {
-            $script:StepsCollection.Add($s)
-            Renumber-Steps
-        }
-    })
+if ($btnMoveStepUp) {
+    $btnMoveStepUp.Add_Click({ Move-StepUp })
 }
 
-$btnAddPause.Add_Click({
-    $s = Show-StepEditor -DefaultType "Pause"
-    if ($s) {
-        $script:StepsCollection.Add($s)
-        Renumber-Steps
-    }
-})
-
-if ($btnAddMessage) {
-    $btnAddMessage.Add_Click({
-        $s = Show-StepEditor -DefaultType "Message"
-        if ($s) {
-            $script:StepsCollection.Add($s)
-            Renumber-Steps
-        }
-    })
-}
-
-if ($btnAddLogoff) {
-    $btnAddLogoff.Add_Click({
-        $s = Show-StepEditor -DefaultType "Logoff"
-        if ($s) {
-            $script:StepsCollection.Add($s)
-            Renumber-Steps
-        }
-    })
+if ($btnMoveStepDown) {
+    $btnMoveStepDown.Add_Click({ Move-StepDown })
 }
 
 $btnCannedScripts.Add_Click({ Show-CannedScriptsDialog })
@@ -5829,6 +5829,25 @@ $menuMoveDown.Add_Click({ Move-StepDown })
 $menuRemoveStep.Add_Click({ Remove-SelectedStep })
 $menuClearSteps.Add_Click({ Clear-AllSteps })
 $btnClearSteps.Add_Click({ Clear-AllSteps })
+
+$dgSteps.Add_PreviewMouseRightButtonDown({
+    param($sender, $e)
+    $dep = $e.OriginalSource
+    while ($null -ne $dep -and $dep -isnot [System.Windows.Controls.DataGridRow]) {
+        if ($dep -is [System.Windows.Media.Visual] -or $dep -is [System.Windows.Media.Media3D.Visual3D]) {
+            $dep = [System.Windows.Media.VisualTreeHelper]::GetParent($dep)
+        } elseif ($dep -is [System.Windows.FrameworkContentElement]) {
+            $dep = $dep.Parent
+        } else {
+            break
+        }
+    }
+    if ($dep -is [System.Windows.Controls.DataGridRow]) {
+        $dep.IsSelected = $true
+        $dgSteps.SelectedItem = $dep.Item
+        [void]$dep.Focus()
+    }
+})
 
 $dgSteps.Add_MouseDoubleClick({
     if ($dgSteps.SelectedItem) { Edit-SelectedStep }
