@@ -381,7 +381,7 @@ $ProgressPreference = 'SilentlyContinue'
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                         <TextBlock Text="🚀 Remote Deployment Console" FontSize="18" FontWeight="Bold" Foreground="#89B4FA"/>
-                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.17" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
+                        <TextBlock x:Name="lblAppVersion" Text="Version 1.4.0.18" FontSize="11" FontWeight="SemiBold" Foreground="#94E2D5" Margin="26,1,0,0"/>
                     </StackPanel>
                     <TextBlock Text=" | Multi-step package deployment with live status" FontSize="12" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </StackPanel>
@@ -951,7 +951,7 @@ $lblTargetCountDetail   = $window.FindName("lblTargetCountDetail")
 $lblTargetOnlineCount   = $window.FindName("lblTargetOnlineCount")
 $lblTargetOfflineCount  = $window.FindName("lblTargetOfflineCount")
 
-$script:AppVersion      = "1.4.0.17"
+$script:AppVersion      = "1.4.0.18"
 $lblAppVersion          = $window.FindName("lblAppVersion")
 if ($lblAppVersion) {
     $lblAppVersion.Text = "Version $script:AppVersion"
@@ -11538,7 +11538,8 @@ function Show-ComputerDeploymentDetails {
                   Background="#181825" Foreground="#CDD6F4" RowBackground="#1E1E2E"
                   AlternatingRowBackground="#181825" BorderBrush="#313244" BorderThickness="1"
                   GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#313244"
-                  HeadersVisibility="Column" SelectionMode="Single" Margin="0,0,0,4">
+                  HeadersVisibility="Column" SelectionMode="Single" Margin="0,0,0,4"
+                  ScrollViewer.CanContentScroll="False" EnableRowVirtualization="False">
             <DataGrid.Resources>
                 <Style TargetType="{x:Type DataGridColumnHeader}">
                     <Setter Property="Background" Value="#11111B"/>
@@ -11651,9 +11652,41 @@ function Show-ComputerDeploymentDetails {
             "Target: $($ComputerRow.ComputerName)`r`nStatus: $($ComputerRow.Status)`r`nTotal:  $($ComputerRow.Duration)`r`n`r`nLatest Output:`r`n$($ComputerRow.Details)"
         }
         if ($txtFullStepLog.Text -ne $newLogText) {
+            $savedLogVertOffset = $txtFullStepLog.VerticalOffset
+            $savedLogHorizOffset = $txtFullStepLog.HorizontalOffset
             $txtFullStepLog.Text = $newLogText
+            $txtFullStepLog.ScrollToVerticalOffset($savedLogVertOffset)
+            $txtFullStepLog.ScrollToHorizontalOffset($savedLogHorizOffset)
         }
     }
+
+    $getDgScrollViewer = {
+        param([System.Windows.DependencyObject]$depObj)
+        if (-not $depObj) { return $null }
+        $queue = New-Object System.Collections.Queue
+        $queue.Enqueue($depObj)
+        while ($queue.Count -gt 0) {
+            $curr = $queue.Dequeue()
+            if ($curr -is [System.Windows.Controls.ScrollViewer]) {
+                return $curr
+            }
+            $childCount = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($curr)
+            for ($i = 0; $i -lt $childCount; $i++) {
+                $child = [System.Windows.Media.VisualTreeHelper]::GetChild($curr, $i)
+                if ($child) { $queue.Enqueue($child) }
+            }
+        }
+        return $null
+    }
+
+    $getStepHistorySnapshot = {
+        if (-not $ComputerRow.StepHistory) { return "" }
+        $parts = foreach ($s in $ComputerRow.StepHistory) {
+            "$($s.StepOrder)|$($s.Status)|$($s.Duration)|$($s.ExecutedAt)|$($s.DetailsPreview)"
+        }
+        return ($parts -join "`n")
+    }
+    $script:lastStepHistorySnapshot = & $getStepHistorySnapshot
 
     $dgStepHistory.Add_SelectionChanged($updateLogText)
     if ($ComputerRow.StepHistory -and $ComputerRow.StepHistory.Count -gt 0) {
@@ -11668,7 +11701,24 @@ function Show-ComputerDeploymentDetails {
             if ($script:ActiveDeployments -and $script:ActiveDeployments.Count -gt 0) {
                 Process-ActiveDeploymentsTick
             }
-            $dgStepHistory.Items.Refresh()
+            $currentSnapshot = & $getStepHistorySnapshot
+            if ($currentSnapshot -ne $script:lastStepHistorySnapshot) {
+                $script:lastStepHistorySnapshot = $currentSnapshot
+                $sv = & $getDgScrollViewer $dgStepHistory
+                $savedVOffset = if ($sv) { $sv.VerticalOffset } else { 0.0 }
+                $savedHOffset = if ($sv) { $sv.HorizontalOffset } else { 0.0 }
+                $savedSelIndex = $dgStepHistory.SelectedIndex
+                $dgStepHistory.Items.Refresh()
+                if ($savedSelIndex -ge 0 -and $savedSelIndex -lt $dgStepHistory.Items.Count) {
+                    $dgStepHistory.SelectedIndex = $savedSelIndex
+                }
+                $dgStepHistory.UpdateLayout()
+                if (-not $sv) { $sv = & $getDgScrollViewer $dgStepHistory }
+                if ($sv) {
+                    $sv.ScrollToVerticalOffset($savedVOffset)
+                    $sv.ScrollToHorizontalOffset($savedHOffset)
+                }
+            }
             & $updateLogText
         } catch {}
     })
